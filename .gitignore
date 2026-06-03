@@ -17,3 +17,7 @@ htmlcov/
 .idea/
 .vscode/
 .DS_Store
+
+# Local operator context — not part of the public release
+CLAUDE.md
+.claude/
