@@ -1,0 +1,3 @@
+[submodule ".governance/ai-dev-governance"]
+	path = .governance/ai-dev-governance
+	url = https://github.com/cms-pm/ai-dev-governance
