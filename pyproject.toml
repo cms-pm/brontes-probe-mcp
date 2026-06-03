@@ -1,0 +1,69 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "brontes-probe-mcp"
+version = "0.1.0.dev0"
+description = "Multi-client debug-probe broker MCP server — session lifecycle, probe operations, ITM/SWO trace, and lane supervision over three concurrent transports"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.11"
+keywords = ["mcp", "debug-probe", "embedded", "pyocd", "swd", "jtag", "itm", "swo"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Embedded Systems",
+    "Topic :: System :: Hardware",
+    "Typing :: Typed",
+]
+dependencies = [
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    "mcp>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.4",
+    "mypy>=1.10",
+    "build>=1.2",
+    "jinja2>=3.1",
+]
+
+[project.scripts]
+brontes-probe-mcp-cli = "brontes_probe_mcp.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/cms-pm/brontes-probe-mcp"
+Source = "https://github.com/cms-pm/brontes-probe-mcp"
+Issues = "https://github.com/cms-pm/brontes-probe-mcp/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.mypy]
+strict = true
+plugins = ["pydantic.mypy"]
+python_version = "3.11"
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "C4"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["brontes_probe_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

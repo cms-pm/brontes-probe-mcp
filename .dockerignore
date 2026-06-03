@@ -1,0 +1,44 @@
+# Version control
+.git
+.gitmodules
+.gitignore
+
+# CI and governance
+.github/
+.governance/
+
+# Development artifacts
+tests/
+docs/
+scripts/
+*.md
+!README.md
+
+# Python build artifacts
+*.pyc
+*.pyo
+__pycache__/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Cache directories
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+
+# Secrets and local config
+.env
+*.pem
+*.key
+*.secret
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
