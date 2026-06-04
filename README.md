@@ -1,47 +1,187 @@
 # brontes-probe-mcp
 
-> **Status: 0.0.0 placeholder.** This is a namespace reservation. The
-> real implementation is not yet published. Do not depend on this repo
-> or the `:0.0.0` image — both are placeholders held pending the first
-> functional release.
+A Model Context Protocol (MCP) server that exposes a multi-client debug-probe
+broker for embedded-systems development. The server mediates between one
+physical debug probe (SWD / JTAG, pyOCD-backed) and multiple concurrent
+client processes — AI assistants, CLI tooling, test runners — without
+requiring teardown of the underlying probe session between operations.
 
-## What this will be
+**Status: 0.1.0.dev0 — typed skeleton, CI green, no operational code yet.**
+The `BrokerCore` typed surface is stable; transport adapters and method bodies
+land in the next release cycle.
 
-A Model Context Protocol (MCP) server that exposes a multi-client
-debug-probe broker for embedded-systems development. The server
-mediates between one physical debug probe (SWD / JTAG, pyOCD-backed)
-and multiple concurrent client processes — AI assistants, CLI tooling,
-test runners — without requiring teardown of the underlying probe
-session between operations.
+## What it does
 
-Functional surface (subject to refinement before 1.0):
+- **Session lifecycle** — `session_start`, `session_stop`, `session_status`
+  (reports `image_digest`, `image_tag`, `protocol_version`).
+- **Probe operations** — `program` (elf / bin / hex), `halt`, `resume`,
+  `reset` (soft / hard), `mem_read`, `blackbox_export`.
+- **ITM / SWO trace** — `itm_stream_start`, `itm_stream_stop`,
+  `recent_lines`.
+- **Lane supervision** — `lane_status`, `lane_release`, `lane_resume`.
 
-- Session lifecycle: start, stop, status (with image digest /
-  protocol version reported).
-- Probe operations: program (`elf` / `bin` / `hex`), halt, resume,
-  reset (soft / hard), memory read, blackbox export.
-- ITM / SWO trace lane: start / stop, recent-lines streaming.
-- Lane supervision: status, release, resume.
+Three transport adapters bind concurrently over one shared `BrokerCore`
+instance, controlled by `PROBE_BROKER_TRANSPORTS`:
 
-Three concurrent transport adapters dispatch into one in-process
-broker instance:
+| Transport | Default | Use case |
+|---|---|---|
+| `stdio` | ✓ | MCP stdio — one AI client |
+| `socket` | ✓ | Unix-domain socket — multi-client substrate |
+| `tcp` | — | Loopback TCP with bearer token — sandbox / Docker Desktop |
 
-- **MCP stdio** — one MCP client per server process.
-- **Unix-domain socket** — multi-client substrate for shared probe
-  sessions.
-- **Loopback TCP with bearer token** — sandbox / containerised AI
-  client fallback.
+## Install
 
-The image-digest pin (sigstore-signed manifest) is the binary-level
-anti-drift contract across the three transports.
+The recommended deployment path is the container image. A PyPI wheel is not
+yet published.
+
+```bash
+# Pull and run (Linux — bind-mount socket)
+docker run -d --name brontes-probe-mcp \
+  -v "$HOME/.brontes-probe-mcp:/run/brontes-probe-mcp" \
+  --device=/dev/bus/usb \
+  --user "$(id -u):$(id -g)" \
+  -e PROBE_BROKER_TRANSPORTS=stdio,socket \
+  ghcr.io/cms-pm/brontes-probe-mcp@sha256:TBD
+```
+
+Pin by digest. The digest is the reproducibility contract.
+
+## Client configuration
+
+Configure your AI client to launch the container via the MCP stdio transport.
+
+<!-- BEGIN client-configs -->
+### Claude Desktop
+
+Add the following entry to the `mcpServers` object in `~/Library/Application Support/Claude/claude_desktop_config.json` (Linux: `~/.config/Claude/claude_desktop_config.json`):
+
+```json
+{
+  "brontes-probe-mcp": {
+    "command": "docker",
+    "args": [
+      "run", "--rm", "-i",
+      "--name", "brontes-probe-mcp",
+      "--device=/dev/bus/usb",
+      "-v", "${HOME}/.brontes-probe-mcp:/run/brontes-probe-mcp",
+      "-e", "PROBE_BROKER_TRANSPORTS=stdio,socket",
+      "ghcr.io/cms-pm/brontes-probe-mcp@sha256:TBD"
+    ]
+  }
+}
+```
+
+### Claude Code
+
+Add to `.mcp.json` in your project root (or `~/.claude.json` for global config):
+
+```json
+{
+  "mcpServers": {
+    "brontes-probe-mcp": {
+      "command": "docker",
+      "args": [
+        "run", "--rm", "-i",
+        "--name", "brontes-probe-mcp",
+        "--device=/dev/bus/usb",
+        "-v", "${HOME}/.brontes-probe-mcp:/run/brontes-probe-mcp",
+        "-e", "PROBE_BROKER_TRANSPORTS=stdio,socket",
+        "ghcr.io/cms-pm/brontes-probe-mcp@sha256:TBD"
+      ]
+    }
+  }
+}
+```
+
+### Codex
+
+Add to `~/.codex/config.json`:
+
+```json
+{
+  "mcpServers": {
+    "brontes-probe-mcp": {
+      "command": "docker",
+      "args": [
+        "run", "--rm", "-i",
+        "--name", "brontes-probe-mcp",
+        "--device=/dev/bus/usb",
+        "-v", "${HOME}/.brontes-probe-mcp:/run/brontes-probe-mcp",
+        "-e", "PROBE_BROKER_TRANSPORTS=stdio,socket",
+        "ghcr.io/cms-pm/brontes-probe-mcp@sha256:TBD"
+      ]
+    }
+  }
+}
+```
+
+### OpenCode
+
+Add to `opencode.json` in your project root:
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "brontes-probe-mcp": {
+        "type": "stdio",
+        "command": "docker",
+        "args": [
+          "run", "--rm", "-i",
+          "--name", "brontes-probe-mcp",
+          "--device=/dev/bus/usb",
+          "-v", "${HOME}/.brontes-probe-mcp:/run/brontes-probe-mcp",
+          "-e", "PROBE_BROKER_TRANSPORTS=stdio,socket",
+          "ghcr.io/cms-pm/brontes-probe-mcp@sha256:TBD"
+        ]
+      }
+    }
+  }
+}
+```
+<!-- END client-configs -->
+
+Replace `sha256:TBD` with the pinned digest for your release. The digest is
+the binary-level reproducibility contract — pin it, don't float on a tag.
+
+## CLI
+
+The `brontes-probe-mcp-cli` console script provides one-shot method
+invocations for shell scripts and debugging:
+
+```bash
+brontes-probe-mcp-cli --version
+brontes-probe-mcp-cli --config-dump   # print resolved config as JSON
+```
+
+Full verb surface (`session-start`, `program`, `halt`, `mem-read`, etc.)
+lands with the transport implementation.
+
+## Configuration
+
+All configuration is via `PROBE_BROKER_*` environment variables:
+
+| Variable | Default | Description |
+|---|---|---|
+| `PROBE_BROKER_TRANSPORTS` | `stdio,socket` | Comma-separated active transports |
+| `PROBE_BROKER_SOCKET_PATH` | `/run/brontes-probe-mcp/probe.sock` | Unix socket path |
+| `PROBE_BROKER_TCP_HOST` | `127.0.0.1` | TCP bind address |
+| `PROBE_BROKER_TCP_PORT` | `7172` | TCP port |
+| `PROBE_BROKER_LANES` | `swd,itm_swo` | Active probe lanes |
+| `PROBE_BROKER_BACKEND` | `pyocd` | Debug backend (`pyocd` or `openocd`) |
+| `PROBE_BROKER_DIGEST_CHECK` | `enforce` | Image digest verification (`enforce`, `warn`, `skip`) |
 
 ## Why "Brontes"
 
-Brontes ("Thunderer") is one of the cyclops smiths in Hephaestus's
-forge — the worker who hammers metal at the master's direction. The
-metaphor maps onto the broker's role: client code directs the
-operation, the broker performs the probe work.
+Brontes ("Thunderer") is one of the cyclops smiths in Hephaestus's forge —
+the worker who hammers metal at the master's direction. The metaphor maps onto
+the broker's role: client code directs the operation, the broker performs the
+probe work.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
-Apache-2.0. See `LICENSE`.
+Apache-2.0. See [LICENSE](LICENSE).
