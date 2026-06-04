@@ -29,16 +29,20 @@ here; consumers wire against it in Phase 2.
 - **1.1** — Core implementation: `SessionManager` + `LaneSupervisor` real
   pyocd calls; all 15 `BrokerCore` method bodies; full regression suite
   replacing the `NotImplementedError` stubs.
+  Plan: `chunks/phase-1/chunk-1.1-core-implementation.md`
 - **1.2** — Transport adapters + launcher: `stdio`, `socket`, `tcp` adapter
   implementations; flock + try-connect + named-container singleton launcher;
   tri-transport parity test. **Board-review trigger.**
+  Plan: `chunks/phase-1/chunk-1.2-transports-and-launcher.md`
 - **1.3** — Container + signing: multi-stage `Dockerfile` (digest-pinned
   `FROM`, baked `org.opencontainers.image.revision`); GHCR multi-arch build
   (`linux/amd64` + `linux/arm64`); cosign OIDC keyless signing; Docker MCP
   Catalog submission manifest draft.
+  Plan: `chunks/phase-1/chunk-1.3-container-and-signing.md`
 - **1.4** — First release: `0.1.0` version bump; GHCR signed image; Docker
   MCP Catalog submission (primary); Anthropic MCP registry submission;
   `CHANGELOG.md` `0.1.0` section complete. **Release governance trigger.**
+  Plan: `chunks/phase-1/chunk-1.4-first-release.md`
 
 ## Practical Sequence
 
