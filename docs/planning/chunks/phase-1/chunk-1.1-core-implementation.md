@@ -151,7 +151,7 @@ here but gated behind `pytest -m hardware`, excluded from CI (risk R9).
 
 | ID | Criterion |
 |---|---|
-| `SCN-1.1-NO-NIE` | `grep -r "NotImplementedError" src/` returns empty (no stubs remain). |
+| `SCN-1.1-NO-NIE` | `grep -r "NotImplementedError" src/brontes_probe_mcp/core/` returns empty (transport stubs in `transports/` are 1.2 scope). |
 | `SCN-1.1-TEST-COUNT` | `pytest --collect-only -q` collects ≥ 60 tests (up from 40). |
 | `SCN-1.1-SESSION-LIFECYCLE` | `test_session_manager.py::test_start_stop_cycle` passes with mocked Popen. |
 | `SCN-1.1-LANE-STATUS` | `test_lanes.py::test_lane_status_both_lanes` returns `{"swd": ..., "itm_swo": ...}` when both lanes enabled. |

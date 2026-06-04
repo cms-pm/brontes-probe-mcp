@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -63,6 +63,6 @@ class SessionStatus(BaseModel):
     protocol_version: str = ""
     image_tag: str | None = None
     image_digest: str | None = None
-    state: str = "unknown"
+    state: Literal["stopped", "healthy", "unhealthy", "stale", "unknown"] = "unknown"
     target: str | None = None
     probe_uid: str | None = None
