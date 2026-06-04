@@ -21,3 +21,11 @@ htmlcov/
 # Local operator context — not part of the public release
 CLAUDE.md
 .claude/
+
+# Astaire knowledge graph — generated artifacts, not source
+.astaire/memory_palace.db
+.astaire/memory_palace.db-*
+.astaire/.uv-cache/
+.astaire/*.db-shm
+.astaire/*.db-wal
+.astaire/.venv/

@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+UV_CACHE_DIR_DEFAULT="${REPO_ROOT}/.astaire/.uv-cache"
+ASTAIRE_PROJECT_ROOT="${REPO_ROOT}/.governance/ai-dev-governance/astaire"
+UV_PROJECT_ENVIRONMENT_DEFAULT="${REPO_ROOT}/.astaire/.venv"
+ASTAIRE_DB="${REPO_ROOT}/.astaire/memory_palace.db"
+ASTAIRE_BIN_DEFAULT="${UV_PROJECT_ENVIRONMENT_DEFAULT}/bin/astaire"
+if ! command -v uv >/dev/null 2>&1; then
+  echo "[astaire-wrapper] FAIL: 'uv' is required but was not found on PATH." >&2
+  exit 127
+fi
+mkdir -p "${UV_CACHE_DIR_DEFAULT}"
+export UV_CACHE_DIR="${UV_CACHE_DIR:-${UV_CACHE_DIR_DEFAULT}}"
+export UV_PROJECT_ENVIRONMENT="${UV_PROJECT_ENVIRONMENT:-${UV_PROJECT_ENVIRONMENT_DEFAULT}}"
+ASTAIRE_BIN="${ASTAIRE_BIN:-${UV_PROJECT_ENVIRONMENT}/bin/astaire}"
+
+if [[ -x "${ASTAIRE_BIN}" ]]; then
+  exec "${ASTAIRE_BIN}" --db "${ASTAIRE_DB}" "$@"
+fi
+
+mkdir -p "${UV_PROJECT_ENVIRONMENT}"
+uv sync \
+  --project "${ASTAIRE_PROJECT_ROOT}" \
+  --directory "${ASTAIRE_PROJECT_ROOT}" \
+  --frozen \
+  --no-dev
+
+if [[ ! -x "${ASTAIRE_BIN}" ]]; then
+  echo "[astaire-wrapper] FAIL: Astaire bootstrap completed but '${ASTAIRE_BIN}' is still missing." >&2
+  exit 1
+fi
+
+exec "${ASTAIRE_BIN}" --db "${ASTAIRE_DB}" "$@"
