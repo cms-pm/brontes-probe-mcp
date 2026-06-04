@@ -4,7 +4,12 @@ from __future__ import annotations
 from typing import Any
 
 from pydantic.fields import FieldInfo
-from pydantic_settings import BaseSettings, EnvSettingsSource, PydanticBaseSettingsSource, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings,
+    EnvSettingsSource,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+)
 
 _CSV_FIELDS: frozenset[str] = frozenset({"transports", "lanes"})
 
