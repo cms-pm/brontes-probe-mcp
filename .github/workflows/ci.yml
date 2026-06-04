@@ -8,6 +8,7 @@ on:
       - "feat/**"
       - "fix/**"
       - "ci/**"
+      - "core/**"
   pull_request:
     branches:
       - main
@@ -48,7 +49,7 @@ jobs:
         run: mypy src/
 
       - name: pytest
-        run: pytest -q
+        run: pytest -q -m "not hardware"
 
       - name: build
         run: python -m build
