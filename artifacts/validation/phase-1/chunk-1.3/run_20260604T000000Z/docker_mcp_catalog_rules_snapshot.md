@@ -2,11 +2,24 @@
 # Captured: 2026-06-04 (R3 mitigation)
 # Source: https://hub.docker.com/mcp (Docker MCP Catalog submission guidelines)
 
+## ⚠ Accuracy warning
+
+This snapshot was produced from model training data (knowledge cutoff Aug 2025),
+NOT from a live web fetch of the Docker MCP Catalog submission documentation.
+It represents a best-effort reconstruction of the requirements as of the
+knowledge cutoff date. The actual catalog schema, required fields, and approved
+category values may differ.
+
+**Action required before 1.4 catalog PR:** Fetch the live submission rules from
+`https://hub.docker.com/mcp` and from the `docker/mcp-catalog` GitHub repository,
+compare against `docs/catalog/docker-mcp-catalog-manifest.yaml`, and update
+both this snapshot and the manifest before opening the submission PR.
+
 ## Purpose
 
-This snapshot captures the Docker MCP Catalog submission requirements at the
-time chunk 1.3 was authored, so the `docs/catalog/docker-mcp-catalog-manifest.yaml`
-draft is grounded in the actual rules rather than assumptions. Risk R3 mitigation.
+This snapshot provides a starting-point grounding for the
+`docs/catalog/docker-mcp-catalog-manifest.yaml` draft so the manifest is
+not authored blind. Risk R3 mitigation. Re-verification required at 1.4.
 
 ## Submission Process (as of 2026-06-04)
 
