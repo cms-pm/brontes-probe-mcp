@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
+from brontes_probe_mcp.core.broker import SessionRequiredError
+
 if TYPE_CHECKING:
     from brontes_probe_mcp.core.broker import BrokerCore
 
@@ -45,7 +47,10 @@ def dispatch(broker: BrokerCore, method: str, kwargs: dict[str, Any]) -> Any:
     if fn is None:
         raise KeyError(f"unknown method {method!r}")
 
-    result = fn(**kwargs)
+    try:
+        result = fn(**kwargs)
+    except SessionRequiredError as exc:
+        return json.loads(error_response("session_required", str(exc)))
 
     if resolved == "recent_lines":
         lines = result if isinstance(result, list) else []

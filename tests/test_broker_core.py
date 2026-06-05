@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import brontes_probe_mcp.core.session as session_module
-from brontes_probe_mcp.core.broker import BrokerCore
+from brontes_probe_mcp.core.broker import BrokerCore, SessionRequiredError
 from brontes_probe_mcp.core.config import BrokerConfig
 from brontes_probe_mcp.core.models import (
     BlackboxExportResult,
@@ -23,8 +23,12 @@ from brontes_probe_mcp.core.models import (
 )
 
 
-def _completed(stdout: str = "", returncode: int = 0) -> CompletedProcess[str]:
-    return CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr="")
+def _completed(
+    stdout: str = "", returncode: int = 0, stderr: str = ""
+) -> CompletedProcess[str]:
+    return CompletedProcess(
+        args=[], returncode=returncode, stdout=stdout, stderr=stderr
+    )
 
 
 @pytest.fixture()
@@ -47,66 +51,79 @@ def broker(mock_run: MagicMock, mock_popen: MagicMock, tmp_path: Path) -> Broker
     )
 
 
+@pytest.fixture()
+def broker_with_session(broker: BrokerCore) -> BrokerCore:
+    broker._session_state = "healthy"
+    return broker
+
+
 # ── GDB-backed operations ─────────────────────────────────────────────────────
 
-def test_halt_returns_probe_state(broker: BrokerCore) -> None:
+def test_halt_returns_probe_state(broker_with_session: BrokerCore) -> None:
+    broker = broker_with_session
     result = broker.halt()
     assert isinstance(result, ProbeState)
     assert result.halted is True
 
 
-def test_halt_calls_subprocess(broker: BrokerCore, mock_run: MagicMock) -> None:
-    broker.halt()
+def test_halt_calls_subprocess(
+    broker_with_session: BrokerCore, mock_run: MagicMock
+) -> None:
+    broker_with_session.halt()
     mock_run.assert_called_once()
     args = mock_run.call_args[0][0]
     assert any("halt" in str(a) for a in args)
 
 
-def test_resume_returns_probe_state(broker: BrokerCore) -> None:
-    result = broker.resume()
+def test_resume_returns_probe_state(broker_with_session: BrokerCore) -> None:
+    result = broker_with_session.resume()
     assert isinstance(result, ProbeState)
     assert result.resumed is True
     assert result.halted is False
 
 
-def test_reset_soft_returns_probe_state(broker: BrokerCore) -> None:
-    result = broker.reset(kind="soft")
+def test_reset_soft_returns_probe_state(broker_with_session: BrokerCore) -> None:
+    result = broker_with_session.reset(kind="soft")
     assert isinstance(result, ProbeState)
     assert result.reset is True
 
 
-def test_reset_hard_returns_probe_state(broker: BrokerCore) -> None:
-    result = broker.reset(kind="hard")
+def test_reset_hard_returns_probe_state(broker_with_session: BrokerCore) -> None:
+    result = broker_with_session.reset(kind="hard")
     assert isinstance(result, ProbeState)
     assert result.reset is True
 
 
-def test_reset_halt_after(broker: BrokerCore, mock_run: MagicMock) -> None:
-    result = broker.reset(halt_after=True)
+def test_reset_halt_after(
+    broker_with_session: BrokerCore, mock_run: MagicMock
+) -> None:
+    result = broker_with_session.reset(halt_after=True)
     assert result.halted_after is True
     args = mock_run.call_args[0][0]
     assert any("halt" in str(a) for a in args)
 
 
-def test_mem_read_returns_result(broker: BrokerCore) -> None:
-    result = broker.mem_read(addr=0x20000000, length=4)
+def test_mem_read_returns_result(broker_with_session: BrokerCore) -> None:
+    result = broker_with_session.mem_read(addr=0x20000000, length=4)
     assert isinstance(result, MemReadResult)
     assert result.addr == 0x20000000
     assert result.length == 4
 
 
 def test_mem_read_passes_address_to_gdb(
-    broker: BrokerCore, mock_run: MagicMock
+    broker_with_session: BrokerCore, mock_run: MagicMock
 ) -> None:
-    broker.mem_read(addr=0x20000000, length=4)
+    broker_with_session.mem_read(addr=0x20000000, length=4)
     args = mock_run.call_args[0][0]
     assert any("20000000" in str(a) for a in args)
 
 
-def test_program_returns_result(broker: BrokerCore, tmp_path: Path) -> None:
+def test_program_returns_result(
+    broker_with_session: BrokerCore, tmp_path: Path
+) -> None:
     artifact = tmp_path / "firmware.elf"
     artifact.write_bytes(b"\x00" * 128)
-    result = broker.program(artifact=artifact)
+    result = broker_with_session.program(artifact=artifact)
     assert isinstance(result, ProgramResult)
     assert result.format == "elf"
     assert result.programmed_bytes == 128
@@ -124,6 +141,63 @@ def test_blackbox_export_missing_file(broker: BrokerCore, tmp_path: Path) -> Non
     out = tmp_path / "nonexistent.bin"
     result = broker.blackbox_export(out=out)
     assert result.bytes_written == 0
+
+
+# ── FND-001: GDB error propagation ───────────────────────────────────────────
+
+def test_gdb_failure_raises(
+    broker_with_session: BrokerCore, mock_run: MagicMock
+) -> None:
+    mock_run.return_value = _completed(
+        returncode=1, stderr="error: no debug probe detected"
+    )
+    with pytest.raises(RuntimeError, match="GDB exited 1"):
+        broker_with_session.halt()
+
+
+def test_gdb_failure_stderr_in_message(
+    broker_with_session: BrokerCore, mock_run: MagicMock
+) -> None:
+    mock_run.return_value = _completed(returncode=1, stderr="Connection refused")
+    with pytest.raises(RuntimeError, match="Connection refused"):
+        broker_with_session.mem_read(addr=0x20000000, length=4)
+
+
+# ── FND-002: session guard ────────────────────────────────────────────────────
+
+def test_probe_op_without_session_raises(broker: BrokerCore) -> None:
+    with pytest.raises(SessionRequiredError):
+        broker.halt()
+
+
+def test_all_probe_ops_require_session(broker: BrokerCore, tmp_path: Path) -> None:
+    artifact = tmp_path / "fw.elf"
+    artifact.write_bytes(b"\x00" * 16)
+    probe_ops = [
+        lambda: broker.halt(),
+        lambda: broker.resume(),
+        lambda: broker.reset(),
+        lambda: broker.mem_read(addr=0x20000000, length=4),
+        lambda: broker.program(artifact=artifact),
+    ]
+    for op in probe_ops:
+        with pytest.raises(SessionRequiredError):
+            op()
+
+
+def test_session_state_tracks_start_stop(
+    broker: BrokerCore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(session_module.os, "getpgid", lambda pid: pid)
+    monkeypatch.setattr(broker._sessions, "_tcp_ready", lambda *a, **kw: True)
+
+    assert broker._session_state == "stopped"
+    broker.session_start(target="stm32g474")
+    assert broker._session_state == "healthy"
+
+    monkeypatch.setattr(session_module.os, "kill", lambda pid, sig: None)
+    broker.session_stop()
+    assert broker._session_state == "stopped"
 
 
 # ── Lane / ITM operations ─────────────────────────────────────────────────────
@@ -195,46 +269,46 @@ def test_session_stop_returns_stopped(
 
 # ── Audit log ─────────────────────────────────────────────────────────────────
 
-def test_recent_lines_after_halt(broker: BrokerCore) -> None:
-    broker.halt()
-    lines = broker.recent_lines()
+def test_recent_lines_after_halt(broker_with_session: BrokerCore) -> None:
+    broker_with_session.halt()
+    lines = broker_with_session.recent_lines()
     assert len(lines) > 0
     assert any(line.method == "halt" for line in lines)
 
 
-def test_recent_lines_after_multiple_ops(broker: BrokerCore) -> None:
-    broker.halt()
-    broker.resume()
-    broker.reset()
-    lines = broker.recent_lines()
+def test_recent_lines_after_multiple_ops(broker_with_session: BrokerCore) -> None:
+    broker_with_session.halt()
+    broker_with_session.resume()
+    broker_with_session.reset()
+    lines = broker_with_session.recent_lines()
     methods = [line.method for line in lines]
     assert "halt" in methods
     assert "resume" in methods
     assert "reset" in methods
 
 
-def test_recent_lines_since_seq(broker: BrokerCore) -> None:
-    broker.halt()
-    broker.resume()
-    all_lines = broker.recent_lines()
+def test_recent_lines_since_seq(broker_with_session: BrokerCore) -> None:
+    broker_with_session.halt()
+    broker_with_session.resume()
+    all_lines = broker_with_session.recent_lines()
     assert len(all_lines) >= 2
     first_seq = all_lines[0].seq
-    lines_after = broker.recent_lines(since_seq=first_seq + 1)
+    lines_after = broker_with_session.recent_lines(since_seq=first_seq + 1)
     assert all(entry.seq >= first_seq + 1 for entry in lines_after)
 
 
-def test_recent_lines_limit(broker: BrokerCore) -> None:
+def test_recent_lines_limit(broker_with_session: BrokerCore) -> None:
     for _ in range(10):
-        broker.halt()
-    lines = broker.recent_lines(limit=3)
+        broker_with_session.halt()
+    lines = broker_with_session.recent_lines(limit=3)
     assert len(lines) <= 3
 
 
-def test_recent_lines_seq_monotonic(broker: BrokerCore) -> None:
-    broker.halt()
-    broker.resume()
-    broker.reset()
-    lines = broker.recent_lines()
+def test_recent_lines_seq_monotonic(broker_with_session: BrokerCore) -> None:
+    broker_with_session.halt()
+    broker_with_session.resume()
+    broker_with_session.reset()
+    lines = broker_with_session.recent_lines()
     seqs = [entry.seq for entry in lines]
     assert seqs == sorted(seqs)
     assert len(seqs) == len(set(seqs))

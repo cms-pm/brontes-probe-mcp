@@ -5,8 +5,8 @@
 
 | ID | Source Meeting | Severity | Opportunity / Gap | Required Adjustment | Owner | Target Window | Closure Evidence | Status |
 |---|---|---|---|---|---|---|---|---|
-| COM-001 | MTG-0001 | Critical | `_run_gdb` discards stderr and uses `check=False`; every probe op returns success regardless of actual GDB outcome | Inspect `returncode` + stderr in `_run_gdb`; raise on failure; surface as `broker_internal_error` | Chris Slothouber | Before chunk 1.3 | `tests/test_broker_core.py`: test asserting GDB non-zero exit → error response | Open |
-| COM-002 | MTG-0001 | Critical | No session guard on probe operations — `halt`/`resume`/`reset`/`mem_read`/`program` execute without checking session state | Add session-state guard at `_run_gdb` callsites; surface `kind: session_required` error shape | Chris Slothouber | Before chunk 1.3 | `tests/test_broker_core.py`: test asserting `halt()` on no-session broker → error response | Open |
+| COM-001 | MTG-0001 | Critical | `_run_gdb` discards stderr and uses `check=False`; every probe op returns success regardless of actual GDB outcome | Inspect `returncode` + stderr in `_run_gdb`; raise on failure; surface as `broker_internal_error` | Chris Slothouber | Before chunk 1.3 | `tests/test_broker_core.py`: `test_gdb_failure_raises`, `test_gdb_failure_stderr_in_message` | **Closed** (PR #4) |
+| COM-002 | MTG-0001 | Critical | No session guard on probe operations — `halt`/`resume`/`reset`/`mem_read`/`program` execute without checking session state | Add session-state guard at `_run_gdb` callsites; surface `kind: session_required` error shape | Chris Slothouber | Before chunk 1.3 | `tests/test_broker_core.py`: `test_probe_op_without_session_raises`, `test_all_probe_ops_require_session`; `tests/test_transport_stdio.py`: `test_probe_op_without_session_returns_session_required` | **Closed** (PR #4) |
 | COM-003 | MTG-0001 | High | `MemReadResult.value` is raw GDB dump text; `format` param ignored; `programmed_bytes` reports file size not flash size | Parse GDB `x/wx` output per `format`; parse `load` output for `programmed_bytes` | Chris Slothouber | Chunk 1.3 window | `test_mem_read_format_hex`, `test_mem_read_format_bytes`, `test_program_bytes` | Open |
 | COM-004 | MTG-0001 | High | `LaneSupervisor._lane_states` (plain dict) and `ItmSwoLane` instance vars have no mutex; three concurrent transport threads share one `BrokerCore` | Add `threading.Lock` to `LaneSupervisor` and `ItmSwoLane` | Chris Slothouber | Chunk 1.3 window | Concurrent-mutation test under `threading` | Open |
 | COM-005 | MTG-0001 | High | `session_stop()` calls `os.kill(pid, sig)` ignoring recorded `process_group_id`; child processes survive | Replace with `os.killpg(pgid, sig)` reading `process_group_id` from meta | Chris Slothouber | Chunk 1.3 window | `test_session_stop_kills_process_group` verifying `os.killpg` called with recorded PGID | Open |
@@ -139,10 +139,10 @@
 
 ## Closure Summary
 
-- Closed this cycle: 0
-- Deferred this cycle: 0 (all adopted, windows assigned)
+- Closed this cycle: **2** (COM-001, COM-002 — PR #4, 2026-06-05)
+- Deferred this cycle: 0
 - Rejected this cycle: 0
-- Open critical blockers: **2** (COM-001, COM-002 — gate chunk 1.3 start)
+- Open critical blockers: **0** — chunk 1.3 gate cleared
 - Open high blockers: 3 (COM-003, COM-004, COM-005 — gate 1.4)
 - Open medium: 4 (COM-006, COM-007, COM-008, COM-009 — gate 1.4)
 - Open low: 1 (COM-010 — gate 1.4)

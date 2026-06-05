@@ -37,9 +37,11 @@ def broker_instance(
     mock_run: MagicMock, mock_popen: MagicMock, tmp_path: Path
 ) -> BrokerCore:
     config = BrokerConfig(log_dir=str(tmp_path / "logs"))
-    return BrokerCore(
+    b = BrokerCore(
         config=config, _subprocess_run=mock_run, _subprocess_popen=mock_popen
     )
+    b._session_state = "healthy"
+    return b
 
 
 def _call(broker: BrokerCore, name: str, arguments: dict[str, Any]) -> Any:
@@ -88,34 +90,48 @@ def test_lane_status(broker_instance: BrokerCore) -> None:
     assert "swd" in result or "itm_swo" in result
 
 
+def test_probe_op_without_session_returns_session_required(
+    mock_run: MagicMock, mock_popen: MagicMock, tmp_path: Path
+) -> None:
+    config = BrokerConfig(log_dir=str(tmp_path / "logs"))
+    no_session_broker = BrokerCore(
+        config=config, _subprocess_run=mock_run, _subprocess_popen=mock_popen
+    )
+    result = _call(no_session_broker, "probe_halt", {})
+    assert "error" in result
+    assert result["error"]["kind"] == "session_required"
+
+
 def test_all_15_tools_callable(broker_instance: BrokerCore, tmp_path: Path) -> None:
     elf = tmp_path / "fw.elf"
     elf.write_bytes(b"\x00" * 64)
     out = tmp_path / "export.bin"
     out.write_bytes(b"\xde\xad" * 4)
 
-    tool_calls: list[tuple[str, dict[str, Any]]] = [
+    # Non-GDB tools: callable regardless of session state
+    non_gdb_tools: list[tuple[str, dict[str, Any]]] = [
         ("session_status", {}),
-        ("session_stop", {}),
-        ("session_start", {"target": "test_target"}),
-        ("probe_halt", {}),
-        ("probe_resume", {}),
-        ("probe_reset", {}),
-        ("probe_mem_read", {"addr": 0x20000000, "length": 4}),
         ("itm_stream_start", {"ports": [0]}),
         ("itm_stream_stop", {}),
         ("lane_status", {}),
         ("lane_release", {"lane": "swd"}),
         ("lane_resume", {"lane": "swd"}),
         ("recent_lines", {}),
-        ("probe_program", {"artifact": str(elf)}),
-        ("probe_flash", {"artifact": str(elf)}),
         ("probe_blackbox_export", {"out": str(out)}),
     ]
-
-    for name, args in tool_calls:
+    for name, args in non_gdb_tools:
         result = _call(broker_instance, name, args)
-        # session_start may return unhealthy; all others should not have error key
-        # except session_start with unhealthy state
-        if name != "session_start":
-            assert "error" not in result, f"Tool {name!r} returned error: {result}"
+        assert "error" not in result, f"Tool {name!r} returned error: {result}"
+
+    # GDB-backed tools: require healthy session — broker_instance has one
+    gdb_tools: list[tuple[str, dict[str, Any]]] = [
+        ("probe_halt", {}),
+        ("probe_resume", {}),
+        ("probe_reset", {}),
+        ("probe_mem_read", {"addr": 0x20000000, "length": 4}),
+        ("probe_program", {"artifact": str(elf)}),
+        ("probe_flash", {"artifact": str(elf)}),
+    ]
+    for name, args in gdb_tools:
+        result = _call(broker_instance, name, args)
+        assert "error" not in result, f"Tool {name!r} returned error: {result}"

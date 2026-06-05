@@ -26,6 +26,10 @@ from brontes_probe_mcp.core.models import (
 from brontes_probe_mcp.core.session import SessionManager
 
 
+class SessionRequiredError(RuntimeError):
+    """Raised when a probe operation is attempted without a healthy session."""
+
+
 class BrokerCore:
     def __init__(
         self,
@@ -45,6 +49,7 @@ class BrokerCore:
         self._audit: deque[LogLine] = deque(maxlen=256)
         self._audit_lock = threading.Lock()
         self._seq = 0
+        self._session_state: str = "stopped"
 
     def _log_op(
         self,
@@ -65,6 +70,13 @@ class BrokerCore:
             )
             self._audit.append(entry)
 
+    def _require_session(self) -> None:
+        if self._session_state != "healthy":
+            raise SessionRequiredError(
+                f"no healthy session active (state={self._session_state!r}); "
+                "call session_start first"
+            )
+
     def _run_gdb(self, commands: list[str], symbol_file: Path | None = None) -> str:
         args: list[str] = [
             self._config.gdb_bin,
@@ -80,6 +92,11 @@ class BrokerCore:
         result: Any = self._subprocess_run(
             args, capture_output=True, text=True, check=False
         )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()
+            raise RuntimeError(
+                f"GDB exited {result.returncode}: {detail or '(no output)'}"
+            )
         return str(result.stdout)
 
     def program(
@@ -90,6 +107,7 @@ class BrokerCore:
         halt_after: bool = True,
         reset_after: bool = False,
     ) -> ProgramResult:
+        self._require_session()
         t0 = time.monotonic()
         sym = artifact if format == "elf" else None
         cmds = ["monitor halt", f"load {artifact}"]
@@ -109,11 +127,13 @@ class BrokerCore:
         )
 
     def halt(self) -> ProbeState:
+        self._require_session()
         self._run_gdb(["monitor halt"])
         self._log_op("halt", payload={"halted": True})
         return ProbeState(halted=True)
 
     def resume(self, disconnect_gdb: bool = True) -> ProbeState:
+        self._require_session()
         self._run_gdb(["continue"])
         self._log_op("resume", payload={"resumed": True})
         return ProbeState(resumed=True, halted=False)
@@ -123,6 +143,7 @@ class BrokerCore:
         kind: Literal["soft", "hard"] = "soft",
         halt_after: bool = False,
     ) -> ProbeState:
+        self._require_session()
         cmds = [f"monitor reset {kind}"]
         if halt_after:
             cmds.append("monitor halt")
@@ -136,6 +157,7 @@ class BrokerCore:
         length: int,
         format: Literal["hex", "bytes"] = "hex",
     ) -> MemReadResult:
+        self._require_session()
         words = max(1, (length + 3) // 4)
         output = self._run_gdb([f"x/{words}wx 0x{addr:08x}"])
         self._log_op("mem_read", payload={"addr": addr, "length": length})
@@ -193,10 +215,14 @@ class BrokerCore:
         return lines[:limit]
 
     def session_start(self, **profile_kwargs: object) -> SessionStatus:
-        return self._sessions.start(**profile_kwargs)
+        result = self._sessions.start(**profile_kwargs)
+        self._session_state = result.state
+        return result
 
     def session_stop(self, force: bool = False) -> SessionStatus:
-        return self._sessions.stop(force=force)
+        result = self._sessions.stop(force=force)
+        self._session_state = "stopped"
+        return result
 
     def session_status(self) -> SessionStatus:
         return self._sessions.status()

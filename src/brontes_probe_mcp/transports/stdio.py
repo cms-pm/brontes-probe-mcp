@@ -10,7 +10,7 @@ import mcp.types as types
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 
-from brontes_probe_mcp.core.broker import BrokerCore
+from brontes_probe_mcp.core.broker import BrokerCore, SessionRequiredError
 from brontes_probe_mcp.transports import _rpc
 
 _TOOLS: list[types.Tool] = [
@@ -233,7 +233,10 @@ async def _call_handler(
                 "method_unknown", f"unknown method {broker_method!r}"
             )
 
-        result = fn(**kwargs)
+        try:
+            result = fn(**kwargs)
+        except SessionRequiredError as exc:
+            return _rpc.error_response("session_required", str(exc))
 
         if broker_method == "recent_lines":
             lines = result if isinstance(result, list) else []
