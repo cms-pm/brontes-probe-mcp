@@ -39,9 +39,11 @@ def broker_instance(
     mock_run: MagicMock, mock_popen: MagicMock, tmp_path: Path
 ) -> BrokerCore:
     config = BrokerConfig(log_dir=str(tmp_path / "logs"))
-    return BrokerCore(
+    b = BrokerCore(
         config=config, _subprocess_run=mock_run, _subprocess_popen=mock_popen
     )
+    b._session_state = "healthy"
+    return b
 
 
 @pytest.fixture()

@@ -40,6 +40,7 @@ def parity_broker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> BrokerCore
         _subprocess_popen=mock_popen,
     )
     monkeypatch.setattr(broker._sessions, "_tcp_ready", lambda *a, **kw: False)
+    broker._session_state = "healthy"
     return broker
 
 
