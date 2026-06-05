@@ -131,3 +131,51 @@ def test_recent_lines_wrapper_tcp(tcp_server: Any) -> None:
     result = _call(port, _TEST_TOKEN, "recent_lines")
     assert "next_seq" in result
     assert "lines" in result
+
+
+# ── COM-008c: tcp_allow_remote enforcement ────────────────────────────────────
+
+def test_tcp_allow_remote_false_rejects_non_loopback(tmp_path: Path) -> None:
+    from brontes_probe_mcp.__main__ import serve_all
+
+    config = BrokerConfig(
+        token="tok",
+        tcp_host="0.0.0.0",
+        tcp_allow_remote=False,
+        log_dir=str(tmp_path / "logs"),
+        transports=["tcp"],
+    )
+    proc = MagicMock(spec=subprocess.Popen)
+    proc.pid = 1
+    broker = BrokerCore(
+        config=config,
+        _subprocess_run=MagicMock(return_value=_completed()),
+        _subprocess_popen=MagicMock(return_value=proc),
+    )
+    with pytest.raises(RuntimeError, match="tcp_allow_remote"):
+        serve_all(config, broker)
+
+
+def test_tcp_allow_remote_true_permits_non_loopback(tmp_path: Path) -> None:
+    from brontes_probe_mcp.__main__ import serve_all
+
+    config = BrokerConfig(
+        token="tok",
+        tcp_host="0.0.0.0",
+        tcp_allow_remote=True,
+        log_dir=str(tmp_path / "logs"),
+        transports=["tcp"],
+    )
+    proc = MagicMock(spec=subprocess.Popen)
+    proc.pid = 1
+    broker = BrokerCore(
+        config=config,
+        _subprocess_run=MagicMock(return_value=_completed()),
+        _subprocess_popen=MagicMock(return_value=proc),
+    )
+    # Should not raise; the thread starts but we don't join
+    import threading
+
+    t = threading.Thread(target=serve_all, args=(config, broker), daemon=True)
+    t.start()
+    t.join(timeout=0.5)  # let it start and bind, then daemon exit cleans up

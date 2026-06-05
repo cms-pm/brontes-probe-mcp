@@ -1,7 +1,7 @@
 # PQ-002 — What is the Correct pyocd Command for `blackbox_export`?
 
 ## Status
-Open
+**Closed** — 2026-06-04 (branch `fix/board-com-003-through-010`)
 
 ## Source
 MTG-0001 (FND-007), 2026-06-04
@@ -58,3 +58,12 @@ it in CHANGELOG as a planned future tool.
 
 ## Raised By
 MTG-0001 / COM-007 (reliability review, 2026-06-04)
+
+## Resolution
+
+**Decision: Option A — GDB `dump binary memory` implementation.**
+
+`blackbox_export` implemented as a real feature using GDB `dump binary memory "{out}" 0x{start_addr:08x} 0x{end_addr:08x}`. Requires active session (`_require_session()` guard). Default range 0x08000000–0x08080000 (512 KB ARM Cortex-M flash). Never returns `bytes_written=0` as success — if the output file is absent after the GDB call, `bytes_written` is 0 only when the file genuinely was not written.
+
+Tests: `test_blackbox_export_calls_gdb_dump`, `test_blackbox_export_requires_session`, `test_blackbox_export_missing_file`.
+README quick-start updated; `docs/tutorials/blackbox-export.md` added.

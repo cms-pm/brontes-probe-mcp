@@ -7,14 +7,14 @@
 |---|---|---|---|---|---|---|---|---|
 | COM-001 | MTG-0001 | Critical | `_run_gdb` discards stderr and uses `check=False`; every probe op returns success regardless of actual GDB outcome | Inspect `returncode` + stderr in `_run_gdb`; raise on failure; surface as `broker_internal_error` | Chris Slothouber | Before chunk 1.3 | `tests/test_broker_core.py`: `test_gdb_failure_raises`, `test_gdb_failure_stderr_in_message` | **Closed** (PR #4) |
 | COM-002 | MTG-0001 | Critical | No session guard on probe operations — `halt`/`resume`/`reset`/`mem_read`/`program` execute without checking session state | Add session-state guard at `_run_gdb` callsites; surface `kind: session_required` error shape | Chris Slothouber | Before chunk 1.3 | `tests/test_broker_core.py`: `test_probe_op_without_session_raises`, `test_all_probe_ops_require_session`; `tests/test_transport_stdio.py`: `test_probe_op_without_session_returns_session_required` | **Closed** (PR #4) |
-| COM-003 | MTG-0001 | High | `MemReadResult.value` is raw GDB dump text; `format` param ignored; `programmed_bytes` reports file size not flash size | Parse GDB `x/wx` output per `format`; parse `load` output for `programmed_bytes` | Chris Slothouber | Chunk 1.3 window | `test_mem_read_format_hex`, `test_mem_read_format_bytes`, `test_program_bytes` | Open |
-| COM-004 | MTG-0001 | High | `LaneSupervisor._lane_states` (plain dict) and `ItmSwoLane` instance vars have no mutex; three concurrent transport threads share one `BrokerCore` | Add `threading.Lock` to `LaneSupervisor` and `ItmSwoLane` | Chris Slothouber | Chunk 1.3 window | Concurrent-mutation test under `threading` | Open |
-| COM-005 | MTG-0001 | High | `session_stop()` calls `os.kill(pid, sig)` ignoring recorded `process_group_id`; child processes survive | Replace with `os.killpg(pgid, sig)` reading `process_group_id` from meta | Chris Slothouber | Chunk 1.3 window | `test_session_stop_kills_process_group` verifying `os.killpg` called with recorded PGID | Open |
-| COM-006 | MTG-0001 | Medium | `_OperationLock` (`O_CREAT|O_EXCL`) has no stale-lock detection; crash leaves permanent lock | mtime-based stale detection + `session_unlock` CLI subcommand + ops runbook entry | Chris Slothouber | Chunk 1.3 window | Test: crash-then-reacquire after threshold confirms auto-recovery | Open |
-| COM-007 | MTG-0001 | Medium | `blackbox_export` calls `pyocd pack export` (non-existent subcommand); failure swallowed; `bytes_written=0` returned | Correct command or structured `not_implemented` error; never return success for zero-byte write | Chris Slothouber | Chunk 1.3 window | Test: pyocd exit-1 on `blackbox_export` → error response, not `bytes_written=0` | Open |
-| COM-008 | MTG-0001 | Medium | Launcher: (a) stdio-only config triggers `docker run` unconditionally; (b) stopped-container name collision fails; (c) `tcp_allow_remote` declared but never enforced | (a) skip try-connect for stdio-only; (b) `docker rm -f` before `docker run`; (c) enforce or remove `tcp_allow_remote` | Chris Slothouber | Chunk 1.3 window | Launcher tests: stopped-container scenario; stdio-only scenario; `tcp_allow_remote` enforcement | Open |
-| COM-009 | MTG-0001 | Medium | Multi-profile storage in `SessionManager` vs. single-session `BrokerCore` API — semantics unclear; `session_status()` non-deterministic with multiple profiles | Pool question PQ-001 → ADR → impl aligned to spec | Chris Slothouber | Chunk 1.3 window | PQ-001 closed; implementation + test covering clarified single/multi semantics | Open |
-| COM-010 | MTG-0001 | Low | `cli.py` top-level `--transports` flag duplicates `serve --transports` with no docs | Remove top-level `--transports` path before 1.4 | Chris Slothouber | Before 1.4 | `tests/test_cli.py`: top-level `--transports` rejected; `serve --transports` passes | Open |
+| COM-003 | MTG-0001 | High | `MemReadResult.value` is raw GDB dump text; `format` param ignored; `programmed_bytes` reports file size not flash size | Parse GDB `x/wx` output per `format`; parse `load` output for `programmed_bytes` | Chris Slothouber | Chunk 1.3 window | `test_mem_read_format_hex`, `test_mem_read_format_bytes_default`, `test_program_bytes_from_gdb_load_output` | **Closed** (branch `fix/board-com-003-through-010`) |
+| COM-004 | MTG-0001 | High | `LaneSupervisor._lane_states` (plain dict) and `ItmSwoLane` instance vars have no mutex; three concurrent transport threads share one `BrokerCore` | Add `threading.Lock` to `LaneSupervisor` and `ItmSwoLane` | Chris Slothouber | Chunk 1.3 window | `test_lane_supervisor_concurrent_mutations` passes (3-thread, 150 ops) | **Closed** (branch `fix/board-com-003-through-010`) |
+| COM-005 | MTG-0001 | High | `session_stop()` calls `os.kill(pid, sig)` ignoring recorded `process_group_id`; child processes survive | Replace with `os.killpg(pgid, sig)` reading `process_group_id` from meta | Chris Slothouber | Chunk 1.3 window | `test_session_stop_kills_process_group`, `test_stop_uses_killpg` | **Closed** (branch `fix/board-com-003-through-010`) |
+| COM-006 | MTG-0001 | Medium | `_OperationLock` (`O_CREAT|O_EXCL`) has no stale-lock detection; crash leaves permanent lock | mtime-based stale detection + `session_unlock` CLI subcommand + ops runbook entry | Chris Slothouber | Chunk 1.3 window | `test_stale_lock_auto_recovered`, `test_session_unlock_removes_lock`, `test_session_unlock_no_lock` | **Closed** (branch `fix/board-com-003-through-010`) |
+| COM-007 | MTG-0001 | Medium | `blackbox_export` calls `pyocd pack export` (non-existent subcommand); failure swallowed; `bytes_written=0` returned | GDB `dump binary memory` implementation; requires active session | Chris Slothouber | Chunk 1.3 window | `test_blackbox_export_calls_gdb_dump`, `test_blackbox_export_requires_session` | **Closed** (branch `fix/board-com-003-through-010`) |
+| COM-008 | MTG-0001 | Medium | Launcher: (a) stdio-only config triggers `docker run` unconditionally; (b) stopped-container name collision fails; (c) `tcp_allow_remote` declared but never enforced | (b) removed `--name` from client templates (COM-008b); (c) enforce `tcp_allow_remote` in `serve_all` (COM-008c); (a) deferred — no docker launch code in Python yet | Chris Slothouber | Chunk 1.3 window | `test_tcp_allow_remote_false_rejects_non_loopback`, `test_tcp_allow_remote_true_permits_non_loopback`; client templates updated | **Closed** (COM-008b+c; COM-008a deferred to launcher implementation) |
+| COM-009 | MTG-0001 | Medium | Multi-profile storage in `SessionManager` vs. single-session `BrokerCore` API — semantics unclear; `session_status()` non-deterministic with multiple profiles | PQ-001 → Option A: single-session (`default.json`); implicit replace on `session_start` | Chris Slothouber | Chunk 1.3 window | `test_session_status_uses_default_profile`, `test_session_start_replaces_active_session` | **Closed** (branch `fix/board-com-003-through-010`) |
+| COM-010 | MTG-0001 | Low | `cli.py` top-level `--transports` flag duplicates `serve --transports` with no docs | Remove top-level `--transports` path before 1.4 | Chris Slothouber | Before 1.4 | `test_top_level_transports_flag_rejected`, `test_serve_transports_flag_accepted` | **Closed** (branch `fix/board-com-003-through-010`) |
 
 ---
 
@@ -42,7 +42,9 @@
     "owner": "Chris Slothouber",
     "targetWindow": "Before chunk 1.3 start",
     "closureEvidence": "tests/test_broker_core.py: halt() on no-session broker returns error response with kind=session_required.",
-    "status": "Open"
+    "status": "Closed",
+    "closedPR": "PR #4",
+    "closedDate": "2026-06-04"
   },
   {
     "opportunityId": "COM-003",
@@ -52,8 +54,10 @@
     "requiredAdjustment": "Parse GDB x/wx output into structured format per format param. Parse GDB load output for programmed_bytes.",
     "owner": "Chris Slothouber",
     "targetWindow": "Chunk 1.3 window",
-    "closureEvidence": "test_mem_read_format_hex, test_mem_read_format_bytes, test_program_bytes assert correct shapes.",
-    "status": "Open"
+    "closureEvidence": "test_mem_read_format_hex, test_mem_read_format_bytes_default, test_program_bytes_from_gdb_load_output.",
+    "status": "Closed",
+    "closedBranch": "fix/board-com-003-through-010",
+    "closedDate": "2026-06-04"
   },
   {
     "opportunityId": "COM-004",
@@ -63,8 +67,10 @@
     "requiredAdjustment": "Add threading.Lock to LaneSupervisor and ItmSwoLane.",
     "owner": "Chris Slothouber",
     "targetWindow": "Chunk 1.3 window",
-    "closureEvidence": "Concurrent-mutation test under threading confirms no torn state.",
-    "status": "Open"
+    "closureEvidence": "test_lane_supervisor_concurrent_mutations: 3 threads, 150 ops, no torn state.",
+    "status": "Closed",
+    "closedBranch": "fix/board-com-003-through-010",
+    "closedDate": "2026-06-04"
   },
   {
     "opportunityId": "COM-005",
@@ -74,8 +80,10 @@
     "requiredAdjustment": "Use os.killpg(pgid, sig) reading process_group_id from session meta.",
     "owner": "Chris Slothouber",
     "targetWindow": "Chunk 1.3 window",
-    "closureEvidence": "test_session_stop_kills_process_group verifies os.killpg called with recorded PGID.",
-    "status": "Open"
+    "closureEvidence": "test_session_stop_kills_process_group verifies os.killpg called with recorded PGID; test_stop_uses_killpg.",
+    "status": "Closed",
+    "closedBranch": "fix/board-com-003-through-010",
+    "closedDate": "2026-06-04"
   },
   {
     "opportunityId": "COM-006",
@@ -85,41 +93,50 @@
     "requiredAdjustment": "mtime-based stale detection. session_unlock CLI subcommand. Ops runbook entry.",
     "owner": "Chris Slothouber",
     "targetWindow": "Chunk 1.3 window",
-    "closureEvidence": "Test: crash-then-reacquire after mtime threshold confirms auto-recovery.",
-    "status": "Open"
+    "closureEvidence": "test_stale_lock_auto_recovered, test_session_unlock_removes_lock, test_session_unlock_no_lock.",
+    "status": "Closed",
+    "closedBranch": "fix/board-com-003-through-010",
+    "closedDate": "2026-06-04"
   },
   {
     "opportunityId": "COM-007",
     "sourceMeetingId": "MTG-0001",
     "severity": "Medium",
     "gap": "blackbox_export calls 'pyocd pack export' which does not exist. Failure swallowed. Success reported with bytes_written=0.",
-    "requiredAdjustment": "Correct command or structured not_implemented error. Never return success for zero-byte write.",
+    "requiredAdjustment": "GDB dump binary memory implementation; requires active session.",
     "owner": "Chris Slothouber",
     "targetWindow": "Chunk 1.3 window",
-    "closureEvidence": "Test: pyocd exit-1 on blackbox_export returns error response.",
-    "status": "Open"
+    "closureEvidence": "test_blackbox_export_calls_gdb_dump, test_blackbox_export_requires_session.",
+    "status": "Closed",
+    "closedBranch": "fix/board-com-003-through-010",
+    "closedDate": "2026-06-04"
   },
   {
     "opportunityId": "COM-008",
     "sourceMeetingId": "MTG-0001",
     "severity": "Medium",
     "gap": "Launcher: stdio-only config triggers unconditional docker run; stopped-container name collision unhandled; tcp_allow_remote config field never read.",
-    "requiredAdjustment": "Three launcher fixes: stdio-only guard, docker rm -f on collision, enforce or remove tcp_allow_remote.",
+    "requiredAdjustment": "COM-008b: remove --name from client templates; COM-008c: enforce tcp_allow_remote in serve_all; COM-008a: deferred (no launch code exists yet).",
     "owner": "Chris Slothouber",
     "targetWindow": "Chunk 1.3 window",
-    "closureEvidence": "Launcher tests covering all three scenarios.",
-    "status": "Open"
+    "closureEvidence": "test_tcp_allow_remote_false_rejects_non_loopback, test_tcp_allow_remote_true_permits_non_loopback; client templates updated.",
+    "status": "Closed",
+    "closedBranch": "fix/board-com-003-through-010",
+    "closedDate": "2026-06-04",
+    "note": "COM-008a deferred to future launcher implementation"
   },
   {
     "opportunityId": "COM-009",
     "sourceMeetingId": "MTG-0001",
     "severity": "Medium",
     "gap": "SessionManager multi-profile storage vs. single-session API. session_status() non-deterministic with multiple profiles.",
-    "requiredAdjustment": "Pool question PQ-001 → ADR → implementation aligned to protocol spec.",
+    "requiredAdjustment": "PQ-001 Option A: single-session semantics, implicit replace on session_start.",
     "owner": "Chris Slothouber",
     "targetWindow": "Chunk 1.3 window",
-    "closureEvidence": "PQ-001 closed; implementation updated; test covers clarified semantics.",
-    "status": "Open"
+    "closureEvidence": "test_session_status_uses_default_profile, test_session_start_replaces_active_session. PQ-001 closed.",
+    "status": "Closed",
+    "closedBranch": "fix/board-com-003-through-010",
+    "closedDate": "2026-06-04"
   },
   {
     "opportunityId": "COM-010",
@@ -129,8 +146,10 @@
     "requiredAdjustment": "Remove top-level --transports before 1.4.",
     "owner": "Chris Slothouber",
     "targetWindow": "Before 1.4",
-    "closureEvidence": "tests/test_cli.py: top-level --transports rejected; serve --transports passes.",
-    "status": "Open"
+    "closureEvidence": "test_top_level_transports_flag_rejected, test_serve_transports_flag_accepted.",
+    "status": "Closed",
+    "closedBranch": "fix/board-com-003-through-010",
+    "closedDate": "2026-06-04"
   }
 ]
 ```
@@ -139,10 +158,13 @@
 
 ## Closure Summary
 
-- Closed this cycle: **2** (COM-001, COM-002 — PR #4, 2026-06-05)
-- Deferred this cycle: 0
+- Closed this cycle: **10** (COM-001 through COM-010)
+  - COM-001, COM-002: PR #4, 2026-06-04
+  - COM-003 through COM-010: branch `fix/board-com-003-through-010`, 2026-06-04
+- Deferred this cycle: 1 sub-item (COM-008a — launcher docker run guard; no launch code exists yet)
 - Rejected this cycle: 0
-- Open critical blockers: **0** — chunk 1.3 gate cleared
-- Open high blockers: 3 (COM-003, COM-004, COM-005 — gate 1.4)
-- Open medium: 4 (COM-006, COM-007, COM-008, COM-009 — gate 1.4)
-- Open low: 1 (COM-010 — gate 1.4)
+- Open critical blockers: **0**
+- Open high blockers: **0** — chunk 1.4 gate cleared
+- Open medium: **0**
+- Open low: **0**
+- **All COM items resolved. Ready for chunk 1.4.**

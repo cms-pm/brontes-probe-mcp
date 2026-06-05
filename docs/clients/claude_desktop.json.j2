@@ -3,7 +3,6 @@
     "command": "docker",
     "args": [
       "run", "--rm", "-i",
-      "--name", "{{ container_name }}",
       "--device=/dev/bus/usb",
       "-v", "${HOME}/.brontes-probe-mcp:/run/brontes-probe-mcp",
       "-e", "PROBE_BROKER_TRANSPORTS={{ transports }}",

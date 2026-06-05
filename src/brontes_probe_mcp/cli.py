@@ -23,19 +23,20 @@ def main() -> None:
         action="store_true",
         help="Print resolved BrokerConfig as JSON and exit",
     )
-    parser.add_argument(
-        "--transports",
-        metavar="CSV",
-        help="Comma-separated transports to start (e.g. stdio,socket,tcp)",
-    )
 
     subparsers = parser.add_subparsers(dest="command")
+
     serve_parser = subparsers.add_parser("serve", help="Start transport servers")
     serve_parser.add_argument(
         "--transports",
         metavar="CSV",
         help="Comma-separated transports (overrides config)",
         dest="serve_transports",
+    )
+
+    subparsers.add_parser(
+        "session-unlock",
+        help="Force-remove a stale session operation lock",
     )
 
     args = parser.parse_args()
@@ -60,14 +61,17 @@ def main() -> None:
         serve_all(config, broker)
         return
 
-    if args.transports:
-        transports = [t.strip() for t in args.transports.split(",") if t.strip()]
-        from brontes_probe_mcp.__main__ import serve_all
-        from brontes_probe_mcp.core.broker import BrokerCore
+    if args.command == "session-unlock":
+        from brontes_probe_mcp.core.session import SessionManager
 
-        config = BrokerConfig(transports=transports)
-        broker = BrokerCore(config=config)
-        serve_all(config, broker)
+        config = BrokerConfig()
+        sm = SessionManager(config)
+        lock_path = sm._lock_path()
+        if lock_path.exists():
+            lock_path.unlink()
+            print(f"Removed stale lock: {lock_path}")
+        else:
+            print(f"No lock file at {lock_path}")
         return
 
     parser.print_help()

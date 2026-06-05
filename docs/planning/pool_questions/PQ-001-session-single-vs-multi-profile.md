@@ -1,7 +1,7 @@
 # PQ-001 — Session: Single-Target or Multi-Target Semantics?
 
 ## Status
-Open
+**Closed** — 2026-06-04 (branch `fix/board-com-003-through-010`)
 
 ## Source
 MTG-0001 (FND-009), 2026-06-04
@@ -64,3 +64,12 @@ and the `session_start`/`session_status`/`session_stop` MCP schemas accordingly.
 
 ## Raised By
 MTG-0001 / COM-009 (reliability review, 2026-06-04)
+
+## Resolution
+
+**Decision: Option A — Single-session semantics.**
+
+`SessionManager` simplified to one fixed profile (`default.json`). `session_start` implicitly stops any existing session before starting a new one. `session_status` and `session_stop` always read `default.json`. `process_group_id` recorded in meta; `session_stop` uses `os.killpg(pgid, sig)`.
+
+Implemented in `src/brontes_probe_mcp/core/session.py` (`_PROFILE = "default"`).
+Tests: `test_session_status_uses_default_profile`, `test_session_start_replaces_active_session`, `test_session_stop_kills_process_group`.

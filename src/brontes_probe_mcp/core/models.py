@@ -26,7 +26,8 @@ class ProbeState(BaseModel):
 class MemReadResult(BaseModel):
     addr: int = 0
     length: int = 0
-    value: str = ""
+    format: str = "bytes"
+    value: str | list[str] = ""
 
 
 class BlackboxExportResult(BaseModel):

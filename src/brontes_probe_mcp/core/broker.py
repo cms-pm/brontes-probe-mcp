@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+import base64
+import re
 import subprocess
 import threading
 import time
@@ -28,6 +30,27 @@ from brontes_probe_mcp.core.session import SessionManager
 
 class SessionRequiredError(RuntimeError):
     """Raised when a probe operation is attempted without a healthy session."""
+
+
+def _parse_gdb_hex_dump(output: str) -> list[str]:
+    """Extract hex word strings from GDB x/wx output lines."""
+    words: list[str] = []
+    for line in output.splitlines():
+        if ":" not in line:
+            continue
+        _, _, rest = line.partition(":")
+        for tok in rest.split():
+            if tok.startswith(("0x", "0X")):
+                words.append(tok)
+    return words
+
+
+def _parse_gdb_load_size(output: str) -> int:
+    """Parse flash bytes written from GDB load command output."""
+    m = re.search(r"load size\s+(\d+)", output)
+    if m:
+        return int(m.group(1))
+    return 0
 
 
 class BrokerCore:
@@ -115,12 +138,14 @@ class BrokerCore:
             cmds.append("monitor reset")
         if halt_after:
             cmds.append("monitor halt")
-        self._run_gdb(cmds, symbol_file=sym)
+        output = self._run_gdb(cmds, symbol_file=sym)
         elapsed = time.monotonic() - t0
-        size = artifact.stat().st_size if artifact.exists() else 0
+        programmed_bytes = _parse_gdb_load_size(output)
+        if programmed_bytes == 0:
+            programmed_bytes = artifact.stat().st_size if artifact.exists() else 0
         self._log_op("program", payload={"artifact": str(artifact), "format": format})
         return ProgramResult(
-            programmed_bytes=size,
+            programmed_bytes=programmed_bytes,
             duration_s=elapsed,
             halted=halt_after,
             format=format,
@@ -155,24 +180,46 @@ class BrokerCore:
         self,
         addr: int,
         length: int,
-        format: Literal["hex", "bytes"] = "hex",
+        format: Literal["hex", "bytes"] = "bytes",
     ) -> MemReadResult:
         self._require_session()
         words = max(1, (length + 3) // 4)
         output = self._run_gdb([f"x/{words}wx 0x{addr:08x}"])
-        self._log_op("mem_read", payload={"addr": addr, "length": length})
-        return MemReadResult(addr=addr, length=length, value=output.strip())
+        hex_words = _parse_gdb_hex_dump(output)
+        byte_count = min(length, len(hex_words) * 4)
 
-    def blackbox_export(self, out: Path) -> BlackboxExportResult:
+        value: str | list[str]
+        if format == "hex":
+            value = hex_words
+        else:
+            raw = b""
+            for w in hex_words:
+                raw += int(w, 16).to_bytes(4, byteorder="little")
+            value = base64.b64encode(raw[:byte_count]).decode()
+
+        self._log_op("mem_read", payload={"addr": addr, "length": length})
+        return MemReadResult(addr=addr, length=length, format=format, value=value)
+
+    def blackbox_export(
+        self,
+        out: Path,
+        start_addr: int = 0x08000000,
+        end_addr: int = 0x08080000,
+    ) -> BlackboxExportResult:
+        """Export a binary flash snapshot via GDB dump binary memory.
+
+        start_addr/end_addr define the memory range; defaults cover 512 KB
+        from the standard ARM Cortex-M flash origin. Requires an active session.
+        """
+        self._require_session()
         snapshot_at = datetime.now(tz=UTC)
-        self._subprocess_run(
-            [self._config.pyocd_bin, "pack", "export", "-o", str(out)],
-            capture_output=True,
-            text=True,
-            check=False,
+        self._run_gdb(
+            [f'dump binary memory "{out}" 0x{start_addr:08x} 0x{end_addr:08x}']
         )
         size = out.stat().st_size if out.exists() else 0
-        self._log_op("blackbox_export", payload={"out": str(out)})
+        self._log_op(
+            "blackbox_export", payload={"out": str(out), "bytes_written": size}
+        )
         return BlackboxExportResult(
             out=out, bytes_written=size, snapshot_at=snapshot_at
         )

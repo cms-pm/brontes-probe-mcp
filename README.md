@@ -86,7 +86,6 @@ Add the following entry to the `mcpServers` object in `~/Library/Application Sup
     "command": "docker",
     "args": [
       "run", "--rm", "-i",
-      "--name", "brontes-probe-mcp",
       "--device=/dev/bus/usb",
       "-v", "${HOME}/.brontes-probe-mcp:/run/brontes-probe-mcp",
       "-e", "PROBE_BROKER_TRANSPORTS=stdio,socket",
@@ -107,7 +106,6 @@ Add to `.mcp.json` in your project root (or `~/.claude.json` for global config):
       "command": "docker",
       "args": [
         "run", "--rm", "-i",
-        "--name", "brontes-probe-mcp",
         "--device=/dev/bus/usb",
         "-v", "${HOME}/.brontes-probe-mcp:/run/brontes-probe-mcp",
         "-e", "PROBE_BROKER_TRANSPORTS=stdio,socket",
@@ -129,7 +127,6 @@ Add to `~/.codex/config.json`:
       "command": "docker",
       "args": [
         "run", "--rm", "-i",
-        "--name", "brontes-probe-mcp",
         "--device=/dev/bus/usb",
         "-v", "${HOME}/.brontes-probe-mcp:/run/brontes-probe-mcp",
         "-e", "PROBE_BROKER_TRANSPORTS=stdio,socket",
@@ -153,7 +150,6 @@ Add to `opencode.json` in your project root:
         "command": "docker",
         "args": [
           "run", "--rm", "-i",
-          "--name", "brontes-probe-mcp",
           "--device=/dev/bus/usb",
           "-v", "${HOME}/.brontes-probe-mcp:/run/brontes-probe-mcp",
           "-e", "PROBE_BROKER_TRANSPORTS=stdio,socket",
@@ -195,6 +191,25 @@ All configuration is via `PROBE_BROKER_*` environment variables:
 | `PROBE_BROKER_LANES` | `swd,itm_swo` | Active probe lanes |
 | `PROBE_BROKER_BACKEND` | `pyocd` | Debug backend (`pyocd` or `openocd`) |
 | `PROBE_BROKER_DIGEST_CHECK` | `enforce` | Image digest verification (`enforce`, `warn`, `skip`) |
+
+## Flash memory snapshot (`probe_blackbox_export`)
+
+Capture a binary snapshot of the target's flash for archiving or diff:
+
+```json
+{
+  "tool": "probe_blackbox_export",
+  "arguments": {
+    "out": "/tmp/snapshot.bin"
+  }
+}
+```
+
+Defaults to `0x08000000`–`0x08080000` (512 KB). Requires an active session.
+Response includes `bytes_written` and `snapshot_at` (UTC ISO-8601).
+
+See [docs/tutorials/blackbox-export.md](docs/tutorials/blackbox-export.md) for
+custom address ranges, error cases, and snapshot comparison examples.
 
 ## Why "Brontes"
 

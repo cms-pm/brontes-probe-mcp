@@ -4,6 +4,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 from subprocess import CompletedProcess
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -129,17 +130,32 @@ def test_program_returns_result(
     assert result.programmed_bytes == 128
 
 
-def test_blackbox_export_returns_result(broker: BrokerCore, tmp_path: Path) -> None:
+def test_blackbox_export_returns_result(
+    broker_with_session: BrokerCore, mock_run: MagicMock, tmp_path: Path
+) -> None:
     out = tmp_path / "export.bin"
-    out.write_bytes(b"\xde\xad" * 8)
-    result = broker.blackbox_export(out=out)
+
+    def _side_effect(*_args: object, **_kwargs: object) -> Any:
+        out.write_bytes(b"\xde\xad" * 8)
+        return _completed()
+
+    mock_run.side_effect = _side_effect
+    result = broker_with_session.blackbox_export(out=out)
     assert isinstance(result, BlackboxExportResult)
     assert result.bytes_written == 16
 
 
-def test_blackbox_export_missing_file(broker: BrokerCore, tmp_path: Path) -> None:
+def test_blackbox_export_requires_session(broker: BrokerCore, tmp_path: Path) -> None:
+    out = tmp_path / "export.bin"
+    with pytest.raises(SessionRequiredError):
+        broker.blackbox_export(out=out)
+
+
+def test_blackbox_export_missing_file(
+    broker_with_session: BrokerCore, tmp_path: Path
+) -> None:
     out = tmp_path / "nonexistent.bin"
-    result = broker.blackbox_export(out=out)
+    result = broker_with_session.blackbox_export(out=out)
     assert result.bytes_written == 0
 
 
@@ -320,3 +336,98 @@ def test_audit_lane_field_set(broker: BrokerCore) -> None:
     itm_lines = [entry for entry in lines if entry.method == "itm_stream_start"]
     assert len(itm_lines) == 1
     assert itm_lines[0].lane == "itm_swo"
+
+
+# ── COM-003: mem_read output parsing ─────────────────────────────────────────
+
+def test_mem_read_format_hex(
+    broker_with_session: BrokerCore, mock_run: MagicMock
+) -> None:
+    mock_run.return_value = _completed(
+        stdout="0x20000000:\t0xDEADBEEF\t0x00000001\n"
+    )
+    result = broker_with_session.mem_read(addr=0x20000000, length=8, format="hex")
+    assert result.format == "hex"
+    assert isinstance(result.value, list)
+    assert result.value == ["0xDEADBEEF", "0x00000001"]
+
+
+def test_mem_read_format_bytes_default(
+    broker_with_session: BrokerCore, mock_run: MagicMock
+) -> None:
+    import base64
+
+    mock_run.return_value = _completed(
+        stdout="0x20000000:\t0xDEADBEEF\n"
+    )
+    result = broker_with_session.mem_read(addr=0x20000000, length=4)
+    assert result.format == "bytes"
+    assert isinstance(result.value, str)
+    # 0xDEADBEEF little-endian = EF BE AD DE
+    expected = base64.b64encode(bytes([0xEF, 0xBE, 0xAD, 0xDE])).decode()
+    assert result.value == expected
+
+
+def test_program_bytes_from_gdb_load_output(
+    broker_with_session: BrokerCore, mock_run: MagicMock, tmp_path: Path
+) -> None:
+    mock_run.return_value = _completed(
+        stdout=(
+            "Loading section .text, size 0x1234 lma 0x08000000\n"
+            "Start address 0x08000000, load size 4660\n"
+            "Transfer rate: 37 KB/sec, 1553 bytes/write.\n"
+        )
+    )
+    elf = tmp_path / "fw.elf"
+    elf.write_bytes(b"\x00" * 64)
+    result = broker_with_session.program(artifact=elf)
+    assert result.programmed_bytes == 4660
+
+
+# ── COM-007: blackbox_export uses GDB dump binary memory ─────────────────────
+
+def test_blackbox_export_calls_gdb_dump(
+    broker_with_session: BrokerCore, mock_run: MagicMock, tmp_path: Path
+) -> None:
+    out = tmp_path / "snap.bin"
+
+    def _side_effect(*args: object, **_kwargs: object) -> Any:
+        out.write_bytes(b"\x00" * 512 * 1024)
+        return _completed()
+
+    mock_run.side_effect = _side_effect
+    result = broker_with_session.blackbox_export(out=out)
+    assert result.bytes_written > 0
+    call_args = mock_run.call_args
+    cmd = call_args[0][0]
+    assert any("dump binary memory" in str(a) for a in cmd)
+    assert any("08000000" in str(a) for a in cmd)
+
+
+# ── COM-004: lane thread-safety ───────────────────────────────────────────────
+
+def test_lane_supervisor_concurrent_mutations(broker: BrokerCore) -> None:
+    import threading as _threading
+
+    errors: list[Exception] = []
+
+    def _toggle(lane: str, n: int) -> None:
+        for i in range(n):
+            try:
+                if i % 2 == 0:
+                    broker.lane_release(lane=lane)
+                else:
+                    broker.lane_resume(lane=lane)
+            except Exception as exc:
+                errors.append(exc)
+
+    threads = [
+        _threading.Thread(target=_toggle, args=("swd", 50)),
+        _threading.Thread(target=_toggle, args=("swd", 50)),
+        _threading.Thread(target=_toggle, args=("itm_swo", 50)),
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == [], f"Thread errors: {errors}"

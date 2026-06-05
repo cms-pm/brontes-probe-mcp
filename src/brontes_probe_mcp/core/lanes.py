@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+import threading
+
 from brontes_probe_mcp.core.config import BrokerConfig
 from brontes_probe_mcp.core.models import ItmStreamHandle, ItmStreamSummary, LaneStatus
 
@@ -12,6 +14,7 @@ class ItmSwoLane:
     """
 
     def __init__(self) -> None:
+        self._lock = threading.Lock()
         self._active = False
         self._ports: list[int] = []
         self._cpu_clock_hz: int | None = None
@@ -23,21 +26,24 @@ class ItmSwoLane:
         cpu_clock_hz: int | None = None,
         trace_clock_hz: int | None = None,
     ) -> ItmStreamHandle:
-        self._active = True
-        self._ports = list(ports)
-        self._cpu_clock_hz = cpu_clock_hz
-        self._trace_clock_hz = trace_clock_hz
-        return ItmStreamHandle(ports=self._ports, trace_clock_hz=trace_clock_hz)
+        with self._lock:
+            self._active = True
+            self._ports = list(ports)
+            self._cpu_clock_hz = cpu_clock_hz
+            self._trace_clock_hz = trace_clock_hz
+        return ItmStreamHandle(ports=list(ports), trace_clock_hz=trace_clock_hz)
 
     def stop(self) -> ItmStreamSummary:
-        self._active = False
-        self._ports = []
+        with self._lock:
+            self._active = False
+            self._ports = []
         return ItmStreamSummary(stopped=True)
 
 
 class LaneSupervisor:
     def __init__(self, config: BrokerConfig) -> None:
         self._config = config
+        self._lock = threading.Lock()
         self.itm_swo = ItmSwoLane()
         # True = normal/active; False = released
         self._lane_states: dict[str, bool] = dict.fromkeys(config.lanes, True)
@@ -49,21 +55,21 @@ class LaneSupervisor:
             )
 
     def lane_status(self) -> dict[str, LaneStatus]:
-        result: dict[str, LaneStatus] = {}
-        for lane, active in self._lane_states.items():
-            result[lane] = LaneStatus(
-                lane=lane,
-                released=not active,
-                resumed=active,
-            )
-        return result
+        with self._lock:
+            snapshot = dict(self._lane_states)
+        return {
+            lane: LaneStatus(lane=lane, released=not active, resumed=active)
+            for lane, active in snapshot.items()
+        }
 
     def lane_release(self, lane: str) -> LaneStatus:
         self._require_lane(lane)
-        self._lane_states[lane] = False
+        with self._lock:
+            self._lane_states[lane] = False
         return LaneStatus(lane=lane, released=True, resumed=False)
 
     def lane_resume(self, lane: str) -> LaneStatus:
         self._require_lane(lane)
-        self._lane_states[lane] = True
+        with self._lock:
+            self._lane_states[lane] = True
         return LaneStatus(lane=lane, released=False, resumed=True)
