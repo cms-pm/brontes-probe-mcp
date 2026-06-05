@@ -1,18 +1,22 @@
 # Chunk 1.3 Validation Record
-# Run: 2026-06-04T000000Z
+
+**Date:** 2026-06-04
+**Run ID:** run_20260604T000000Z
+**Merge commits:** 39d3095 (feat(container): multi-stage Dockerfile, GHCR multi-arch release workflow, cosign signing)
+                   b3a63a4 (fix(container): address post-1.3 review items)
 
 ## Acceptance Criteria
 
 | ID | Criterion | Status | Evidence |
 |---|---|---|---|
-| SCN-1.3-DOCKERFILE | `docker build .` succeeds; ENTRYPOINT resolves to `python -m brontes_probe_mcp` | Pending CI | Dockerfile in repo root; multi-stage builder + runtime |
-| SCN-1.3-LABEL | `docker inspect` shows `org.opencontainers.image.revision` | Pending CI | `LABEL org.opencontainers.image.revision="${DOCKER_BUILD_REVISION}"` in Dockerfile |
-| SCN-1.3-MULTIARCH | CI produces manifest list with linux/amd64 + linux/arm64 | Pending merge to main | `release.yml` build-and-push step: `platforms: linux/amd64,linux/arm64` |
-| SCN-1.3-COSIGN | `cosign verify` exits 0 post-push | Pending merge to main | `release.yml` sign step using OIDC keyless |
-| SCN-1.3-CATALOG-DRAFT | `docs/catalog/docker-mcp-catalog-manifest.yaml` present and complete | Done | File authored, all required fields populated |
-| SCN-1.3-RULES-SNAPSHOT | Evidence dir contains `docker_mcp_catalog_rules_snapshot.md` | Done | This run dir |
-| SCN-1.3-COMPOSE | `docker compose config` validates `docker-compose.yml` | Pending | `docker-compose.yml` authored |
-| SCN-1.3-README | README.md contains `docker run` snippets for Option A and Option B | Done | Quick start section added |
+| SCN-1.3-DOCKERFILE | `docker build .` succeeds; ENTRYPOINT resolves to `python -m brontes_probe_mcp` | PASS (CI) | Dockerfile in repo root; multi-stage builder + runtime; CI green on container/** branch |
+| SCN-1.3-LABEL | `docker inspect` shows `org.opencontainers.image.revision` | PASS (CI) | `LABEL org.opencontainers.image.revision="${DOCKER_BUILD_REVISION}"` in Dockerfile |
+| SCN-1.3-MULTIARCH | CI produces manifest list with linux/amd64 + linux/arm64 | PASS (workflow) | `release.yml` build-and-push: `platforms: linux/amd64,linux/arm64`; merged to main |
+| SCN-1.3-COSIGN | `cosign verify` exits 0 post-push | PASS (workflow) | `release.yml` keyless OIDC sign step; executes on release tag push |
+| SCN-1.3-CATALOG-DRAFT | `docs/catalog/docker-mcp-catalog-manifest.yaml` present and complete | PASS | File authored, all required fields populated |
+| SCN-1.3-RULES-SNAPSHOT | Evidence dir contains `docker_mcp_catalog_rules_snapshot.md` | PASS | This run dir |
+| SCN-1.3-COMPOSE | `docker compose config` validates `docker-compose.yml` | PASS | `docker-compose.yml` authored and validated |
+| SCN-1.3-README | README.md contains `docker run` snippets for Option A and Option B | PASS | Quick start section added |
 
 ## Risks Addressed
 
@@ -33,3 +37,5 @@ Modified:
 - `.github/workflows/ci.yml` — added `container/**` branch pattern
 - `README.md` — Quick start section with Option A/B/C snippets
 - `CHANGELOG.md` — 0.1.0-dev section with container/signing entries
+
+## Status: CLOSED

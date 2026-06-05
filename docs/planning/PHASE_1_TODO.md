@@ -49,10 +49,10 @@ here; consumers wire against it in Phase 2.
 | Priority | Chunk | Status | Risk Tier | Depends On |
 | --- | --- | --- | --- | --- |
 | 1 | `1.0` | **Closed** (`ed0e5fb` on `main`, 2026-06-04) | Low | — |
-| 2 | `1.1` | Planned | Medium | 1.0 closed; CI green on skeleton. |
-| 3 | `1.2` | Planned | High | 1.1 closed; full pyocd test suite green. |
-| 4 | `1.3` | Planned | Medium | 1.2 closed; three transports parity-proven. |
-| 5 | `1.4` | Planned | Medium | 1.3 closed; signed image reachable on GHCR; CHANGELOG drafted. |
+| 2 | `1.1` | **Closed** (`df39f25` + `29c85e3` on `main`, 2026-06-04) | Medium | 1.0 closed; CI green on skeleton. |
+| 3 | `1.2` | **Closed** (`9e7b21e` on `main`, 2026-06-04) | High | 1.1 closed; full pyocd test suite green. |
+| 4 | `1.3` | **Closed** (`39d3095` + `b3a63a4` on `main`, 2026-06-04) | Medium | 1.2 closed; three transports parity-proven. |
+| 5 | `1.4` | **In Progress** | Medium | 1.3 closed; signed image reachable on GHCR; CHANGELOG drafted. |
 
 ## Hard Prereqs
 
