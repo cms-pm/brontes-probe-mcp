@@ -29,22 +29,47 @@ instance, controlled by `PROBE_BROKER_TRANSPORTS`:
 | `socket` | ✓ | Unix-domain socket — multi-client substrate |
 | `tcp` | — | Loopback TCP with bearer token — sandbox / Docker Desktop |
 
-## Install
+## Quick start
 
 The recommended deployment path is the container image. A PyPI wheel is not
 yet published.
 
+**Option A — Unix socket (Linux, recommended)**
+
 ```bash
-# Pull and run (Linux — bind-mount socket)
 docker run -d --name brontes-probe-mcp \
   -v "$HOME/.brontes-probe-mcp:/run/brontes-probe-mcp" \
   --device=/dev/bus/usb \
-  --user "$(id -u):$(id -g)" \
-  -e PROBE_BROKER_TRANSPORTS=stdio,socket \
-  ghcr.io/cms-pm/brontes-probe-mcp@sha256:TBD
+  ghcr.io/cms-pm/brontes-probe-mcp:0.1.0
 ```
 
-Pin by digest. The digest is the reproducibility contract.
+**Option B — TCP loopback (Docker Desktop / macOS)**
+
+```bash
+docker run -d --name brontes-probe-mcp \
+  -e PROBE_BROKER_TRANSPORTS=stdio,tcp \
+  -e PROBE_BROKER_TOKEN=your-token-here \
+  -p 127.0.0.1:7172:7172 \
+  --device=/dev/bus/usb \
+  ghcr.io/cms-pm/brontes-probe-mcp:0.1.0
+```
+
+**Option C — Docker Compose (socket, auto-restart)**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cms-pm/brontes-probe-mcp/main/docker-compose.yml \
+  -o docker-compose.yml
+docker compose up -d
+```
+
+Pin by digest for production use — the digest is the binary-level
+reproducibility contract:
+
+```bash
+ghcr.io/cms-pm/brontes-probe-mcp@sha256:<digest>
+```
+
+Digests are published in [CHANGELOG.md](CHANGELOG.md) for each release.
 
 ## Client configuration
 

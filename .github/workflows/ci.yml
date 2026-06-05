@@ -9,6 +9,7 @@ on:
       - "fix/**"
       - "ci/**"
       - "core/**"
+      - "container/**"
   pull_request:
     branches:
       - main

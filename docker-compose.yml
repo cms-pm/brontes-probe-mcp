@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: Apache-2.0
+# Option C deployment — Unix-domain socket substrate (protocol spec § 10.6)
+# Replace the image tag/digest before production use.
+
+services:
+  brontes-probe-mcp:
+    image: ghcr.io/cms-pm/brontes-probe-mcp:0.1.0
+    container_name: brontes-probe-mcp
+    volumes:
+      - "${HOME}/.brontes-probe-mcp:/run/brontes-probe-mcp"
+    devices:
+      - "/dev/bus/usb:/dev/bus/usb"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "brontes-probe-mcp-cli", "session-status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    environment:
+      PROBE_BROKER_TRANSPORTS: "stdio,socket"

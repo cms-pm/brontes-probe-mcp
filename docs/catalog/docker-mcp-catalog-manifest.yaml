@@ -1,0 +1,101 @@
+# Docker MCP Catalog submission manifest — DRAFT
+# Status: draft (not submitted — submission gated on chunk 1.4)
+# Grounded against rules snapshot: artifacts/validation/phase-1/chunk-1.3/run_20260604T000000Z/docker_mcp_catalog_rules_snapshot.md
+
+name: brontes-probe-mcp
+vendor: cms-pm
+version: "0.1.0"
+title: "Brontes Probe MCP"
+description: >
+  Multi-client debug-probe broker MCP server for embedded-systems development.
+  Mediates between one physical SWD/JTAG probe and multiple concurrent AI
+  assistant clients without tearing down the underlying pyOCD probe session
+  between operations. Exposes session lifecycle, probe operations (program,
+  halt, resume, reset, mem_read, blackbox_export), ITM/SWO trace streaming,
+  and lane supervision over three concurrent transports.
+
+image: ghcr.io/cms-pm/brontes-probe-mcp
+icon: https://raw.githubusercontent.com/cms-pm/brontes-probe-mcp/main/docs/assets/icon.png
+
+categories:
+  - developer-tools
+  - iot
+  - embedded-systems
+
+license: Apache-2.0
+source: https://github.com/cms-pm/brontes-probe-mcp
+
+tools:
+  - name: session_start
+    description: Start a pyOCD probe session for a named target (e.g. stm32g474).
+  - name: session_stop
+    description: Stop the active probe session and release the probe hardware.
+  - name: session_status
+    description: Return the current session state, image digest, and protocol version.
+  - name: probe_halt
+    description: Halt the target CPU via SWD.
+  - name: probe_resume
+    description: Resume target CPU execution.
+  - name: probe_reset
+    description: Reset the target (soft or hard).
+  - name: probe_mem_read
+    description: Read memory from the target at a given address and length.
+  - name: probe_program
+    description: Flash an ELF/bin/hex artifact to the target.
+  - name: probe_flash
+    description: Alias for probe_program.
+  - name: probe_blackbox_export
+    description: Export a raw flash snapshot to a local file.
+  - name: itm_stream_start
+    description: Start ITM/SWO trace capture on specified port numbers.
+  - name: itm_stream_stop
+    description: Stop ITM/SWO trace capture and flush the buffer.
+  - name: recent_lines
+    description: Return recent ITM/SWO trace lines starting from a sequence number.
+  - name: lane_status
+    description: Report active lane states (swd, itm_swo) and their health.
+  - name: lane_release
+    description: Release a named lane back to the available pool.
+  - name: lane_resume
+    description: Resume a suspended lane.
+
+config:
+  env:
+    - name: PROBE_BROKER_TRANSPORTS
+      description: "Comma-separated active transports: stdio, socket, tcp"
+      default: "stdio,socket"
+    - name: PROBE_BROKER_SOCKET_PATH
+      description: Unix-domain socket path
+      default: "/run/brontes-probe-mcp/probe.sock"
+    - name: PROBE_BROKER_TCP_HOST
+      description: TCP bind address (tcp transport only)
+      default: "127.0.0.1"
+    - name: PROBE_BROKER_TCP_PORT
+      description: TCP port (tcp transport only)
+      default: "7172"
+    - name: PROBE_BROKER_TOKEN
+      description: Bearer token for TCP transport authentication
+      required_if: "PROBE_BROKER_TRANSPORTS contains tcp"
+  volumes:
+    - host: "${HOME}/.brontes-probe-mcp"
+      container: "/run/brontes-probe-mcp"
+      description: Socket and log directory
+  devices:
+    - host: "/dev/bus/usb"
+      container: "/dev/bus/usb"
+      description: USB bus access for probe hardware
+
+quick_start: |
+  # Option A — Unix socket (Linux, recommended)
+  docker run -d --name brontes-probe-mcp \
+    -v "$HOME/.brontes-probe-mcp:/run/brontes-probe-mcp" \
+    --device=/dev/bus/usb \
+    ghcr.io/cms-pm/brontes-probe-mcp:0.1.0
+
+  # Option B — TCP loopback (Docker Desktop / macOS)
+  docker run -d --name brontes-probe-mcp \
+    -e PROBE_BROKER_TRANSPORTS=stdio,tcp \
+    -e PROBE_BROKER_TOKEN=your-token-here \
+    -p 127.0.0.1:7172:7172 \
+    --device=/dev/bus/usb \
+    ghcr.io/cms-pm/brontes-probe-mcp:0.1.0
