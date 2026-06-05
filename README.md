@@ -89,7 +89,7 @@ Add the following entry to the `mcpServers` object in `~/Library/Application Sup
       "--device=/dev/bus/usb",
       "-v", "${HOME}/.brontes-probe-mcp:/run/brontes-probe-mcp",
       "-e", "PROBE_BROKER_TRANSPORTS=stdio,socket",
-      "ghcr.io/cms-pm/brontes-probe-mcp@sha256:TBD"
+      "ghcr.io/cms-pm/brontes-probe-mcp@sha256:77e58b86015ddf0b36fba47d267669ed7493ea5ff6794dbe80628fa4dce13ae7"
     ]
   }
 }
@@ -109,7 +109,7 @@ Add to `.mcp.json` in your project root (or `~/.claude.json` for global config):
         "--device=/dev/bus/usb",
         "-v", "${HOME}/.brontes-probe-mcp:/run/brontes-probe-mcp",
         "-e", "PROBE_BROKER_TRANSPORTS=stdio,socket",
-        "ghcr.io/cms-pm/brontes-probe-mcp@sha256:TBD"
+        "ghcr.io/cms-pm/brontes-probe-mcp@sha256:77e58b86015ddf0b36fba47d267669ed7493ea5ff6794dbe80628fa4dce13ae7"
       ]
     }
   }
@@ -130,7 +130,7 @@ Add to `~/.codex/config.json`:
         "--device=/dev/bus/usb",
         "-v", "${HOME}/.brontes-probe-mcp:/run/brontes-probe-mcp",
         "-e", "PROBE_BROKER_TRANSPORTS=stdio,socket",
-        "ghcr.io/cms-pm/brontes-probe-mcp@sha256:TBD"
+        "ghcr.io/cms-pm/brontes-probe-mcp@sha256:77e58b86015ddf0b36fba47d267669ed7493ea5ff6794dbe80628fa4dce13ae7"
       ]
     }
   }
@@ -153,7 +153,7 @@ Add to `opencode.json` in your project root:
           "--device=/dev/bus/usb",
           "-v", "${HOME}/.brontes-probe-mcp:/run/brontes-probe-mcp",
           "-e", "PROBE_BROKER_TRANSPORTS=stdio,socket",
-          "ghcr.io/cms-pm/brontes-probe-mcp@sha256:TBD"
+          "ghcr.io/cms-pm/brontes-probe-mcp@sha256:77e58b86015ddf0b36fba47d267669ed7493ea5ff6794dbe80628fa4dce13ae7"
         ]
       }
     }
