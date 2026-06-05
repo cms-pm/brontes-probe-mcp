@@ -1,10 +1,10 @@
 # brontes-probe-mcp
 
-A Model Context Protocol (MCP) server that exposes a multi-client debug-probe
-broker for embedded-systems development. The server mediates between one
-physical debug probe (SWD / JTAG, pyOCD-backed) and multiple concurrent
-client processes — AI assistants, CLI tooling, test runners — without
-requiring teardown of the underlying probe session between operations.
+A Model Context Protocol (MCP) server that exposes a debug-probe broker for
+embedded-systems development. The server maintains one persistent probe
+session (SWD / JTAG, pyOCD-backed) accessible to multiple client tools —
+AI assistants, CLI tooling, test runners — without requiring teardown and
+re-establishment of the hardware connection between operations.
 
 **Status: 0.1.0 — fully operational.**
 Session lifecycle, probe operations, ITM/SWO trace, and lane supervision over
@@ -26,7 +26,7 @@ instance, controlled by `PROBE_BROKER_TRANSPORTS`:
 | Transport | Default | Use case |
 |---|---|---|
 | `stdio` | ✓ | MCP stdio — one AI client |
-| `socket` | ✓ | Unix-domain socket — multi-client substrate |
+| `socket` | ✓ | Unix-domain socket — local tool access |
 | `tcp` | — | Loopback TCP with bearer token — sandbox / Docker Desktop |
 
 ## Quick start
