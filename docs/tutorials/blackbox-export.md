@@ -160,7 +160,15 @@ bool telemetry_valid(void) {
 ```
 
 After export, extract fields from the binary. The struct starts at
-`TELEMETRY_BASE_ADDR − start_addr` bytes into the file:
+`TELEMETRY_BASE_ADDR − start_addr` bytes into the file.
+
+> **Endianness**: the decoder below assumes a little-endian target (all
+> Cortex-M parts). If your MCU runs big-endian, swap `"<8I"` for `">8I"`.
+
+> **ISR safety**: `telemetry_valid()` reads all fields and then recomputes
+> the checksum in two separate passes through `g_tel`. If your firmware
+> updates telemetry from an ISR context, disable interrupts around the call
+> to prevent a false-negative caused by a torn write between the two reads.
 
 ```python
 import struct, sys
@@ -171,7 +179,7 @@ OFFSET  = 0x20007F00 - 0x20000000   # relative to a dump starting at 0x20000000
 with open(sys.argv[1], "rb") as f:
     raw = f.read()[OFFSET : OFFSET + 32]
 
-fields = struct.unpack_from("<8I", raw)
+fields = struct.unpack_from("<8I", raw)   # little-endian; see note above
 names  = ("magic", "version", "pc", "insn_count",
           "last_opcode", "tick_ms", "test_value", "checksum")
 data   = dict(zip(names, fields))
@@ -194,7 +202,22 @@ A ring buffer in a `.noinit` section retains events across a watchdog or
 from a post-mortem dump.
 
 Define the storage section in your linker script (see below), then use the
-ring API:
+ring API. The minimal header surface is:
+
+```c
+/* blackbox_ring.h — minimum public API */
+#include <stdint.h>
+#include <stdbool.h>
+
+void blackbox_init(void);
+bool blackbox_record(uint8_t vm_id, uint16_t event_id, uint32_t timestamp_ms,
+                     uint32_t pc, uint32_t error_code,
+                     const uint8_t *payload, uint8_t payload_len);
+bool blackbox_snapshot_tick(uint8_t vm_id, uint32_t timestamp_ms);
+void blackbox_record_fault(uint8_t vm_id, uint16_t event_id,
+                           uint32_t timestamp_ms, uint32_t pc,
+                           uint32_t error_code);
+```
 
 ```c
 /* main.c excerpt */
@@ -259,10 +282,12 @@ static blackbox_storage_t g_blackbox_storage;
 #### CRC-validated event record
 
 Each event carries a CRC-32 so the dump parser can detect torn writes or
-memory corruption:
+memory corruption. The struct uses `__attribute__((packed))` to eliminate
+compiler-inserted padding; validate the layout with a size assert before
+integrating:
 
 ```c
-typedef struct {
+typedef struct __attribute__((packed)) {
     uint32_t timestamp_ms;
     uint32_t pc;
     uint32_t error_code;
@@ -271,8 +296,12 @@ typedef struct {
     uint8_t  vm_id;
     uint8_t  payload_len;
     uint8_t  payload[16];
-    uint32_t crc32;          /* covers all fields above */
+    uint32_t crc32;          /* CRC-32 over all fields above */
 } blackbox_event_t;
+
+/* 4+4+4+4+2+1+1+16+4 = 40 bytes */
+_Static_assert(sizeof(blackbox_event_t) == 40,
+               "blackbox_event_t layout changed — update parser");
 ```
 
 ### Pattern 3 — C++ observer
@@ -283,7 +312,7 @@ without coupling the VM to the blackbox directly:
 
 ```cpp
 /* main.cpp excerpt */
-#include "blackbox_observer.h"   /* wraps vm_blackbox_t */
+#include "blackbox_observer.h"   /* telemetry_t-backed observer */
 
 int main() {
     BlackboxObserver observer;   /* creates and owns the blackbox instance */
@@ -304,7 +333,7 @@ int main() {
 
 ```cpp
 /* blackbox_observer.h */
-#include "blackbox_telemetry.h"   /* C API */
+#include "blackbox_telemetry.h"   /* C API — telemetry_init / telemetry_update */
 #include <cstdint>
 
 struct ITelemetryObserver {
@@ -318,28 +347,32 @@ struct ITelemetryObserver {
 };
 
 class BlackboxObserver : public ITelemetryObserver {
-    vm_blackbox_t* bb_;
-
 public:
     BlackboxObserver() { telemetry_init(); }
 
     void on_instruction_executed(uint32_t pc,
                                  uint8_t  opcode,
                                  uint32_t operand) override {
+        /* tick omitted per-instruction — HAL_GetTick() costs ~1 µs/call
+         * on Cortex-M; sample it in on_execution_complete instead */
         telemetry_update(pc, operand,
                          static_cast<uint32_t>(opcode),
-                         /* tick */ 0);
+                         /* tick_ms */ 0);
     }
 
     void on_execution_complete(uint32_t total, uint32_t ms) override {
-        telemetry_update(0xFFFFFFFFU, total, ms, ms);
+        /* pc = 0xFFFFFFFE is a reserved sentinel meaning "run complete";
+         * it is never a valid Thumb instruction address (bit 0 clear,
+         * top nibble 0xF reserved), so post-mortem tooling can distinguish
+         * this record from a real fault PC */
+        telemetry_update(0xFFFFFFFEU, total, ms, ms);
     }
 
     void on_vm_reset() override {
         telemetry_update(0, 0, 0, 0);
     }
 
-    /* deleted — telemetry is at a fixed address; copies make no sense */
+    /* deleted — telemetry lives at a fixed RAM address; copies are meaningless */
     BlackboxObserver(const BlackboxObserver&)            = delete;
     BlackboxObserver& operator=(const BlackboxObserver&) = delete;
 };
@@ -355,3 +388,11 @@ committing to a full export:
 (gdb) print *(telemetry_t*)0x20007F00
 (gdb) print blackbox_storage_start   /* if you exported the linker symbol */
 ```
+
+---
+
+## Questions and feedback
+
+If something in this tutorial doesn't work for your target or toolchain, feel
+free to [open an issue](https://github.com/cms-pm/brontes-probe-mcp/issues).
+Include your MCU family, toolchain version, and the output you're seeing.
