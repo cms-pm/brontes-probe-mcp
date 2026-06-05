@@ -90,6 +90,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             DOCKER_BUILD_REVISION=${{ github.sha }}
+            DOCKER_BUILD_VERSION=${{ steps.meta.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: true
@@ -102,5 +103,3 @@ jobs:
         run: |
           cosign sign --yes \
             "ghcr.io/cms-pm/brontes-probe-mcp@${{ steps.push.outputs.digest }}"
-        env:
-          COSIGN_EXPERIMENTAL: "1"

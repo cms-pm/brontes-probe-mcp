@@ -12,7 +12,7 @@ services:
       - "/dev/bus/usb:/dev/bus/usb"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "brontes-probe-mcp-cli", "session-status"]
+      test: ["CMD-SHELL", "pgrep -f brontes_probe_mcp || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -17,11 +17,13 @@ RUN python -m build --wheel
 FROM ${BASE_IMAGE} AS runtime
 
 ARG DOCKER_BUILD_REVISION=dev
+ARG DOCKER_BUILD_VERSION=dev
 LABEL org.opencontainers.image.title="brontes-probe-mcp"
 LABEL org.opencontainers.image.description="Multi-client debug-probe broker MCP server — session lifecycle, probe operations, ITM/SWO trace, lane supervision"
 LABEL org.opencontainers.image.source="https://github.com/cms-pm/brontes-probe-mcp"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
 LABEL org.opencontainers.image.vendor="cms-pm"
+LABEL org.opencontainers.image.version="${DOCKER_BUILD_VERSION}"
 LABEL org.opencontainers.image.revision="${DOCKER_BUILD_REVISION}"
 
 RUN apt-get update \

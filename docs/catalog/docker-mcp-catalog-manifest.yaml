@@ -15,7 +15,7 @@ description: >
   and lane supervision over three concurrent transports.
 
 image: ghcr.io/cms-pm/brontes-probe-mcp
-icon: https://raw.githubusercontent.com/cms-pm/brontes-probe-mcp/main/docs/assets/icon.png
+# icon: add docs/assets/icon.png before catalog submission (1.4 gate)
 
 categories:
   - developer-tools
