@@ -26,7 +26,9 @@ from brontes_probe_mcp.core.models import (
 def _completed(
     stdout: str = "", returncode: int = 0, stderr: str = ""
 ) -> CompletedProcess[str]:
-    return CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr=stderr)
+    return CompletedProcess(
+        args=[], returncode=returncode, stdout=stdout, stderr=stderr
+    )
 
 
 @pytest.fixture()
