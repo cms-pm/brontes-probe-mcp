@@ -6,9 +6,9 @@ physical debug probe (SWD / JTAG, pyOCD-backed) and multiple concurrent
 client processes — AI assistants, CLI tooling, test runners — without
 requiring teardown of the underlying probe session between operations.
 
-**Status: 0.1.0.dev0 — typed skeleton, CI green, no operational code yet.**
-The `BrokerCore` typed surface is stable; transport adapters and method bodies
-land in the next release cycle.
+**Status: 0.1.0 — fully operational.**
+Session lifecycle, probe operations, ITM/SWO trace, and lane supervision over
+three concurrent transports (stdio MCP, Unix socket, loopback TCP).
 
 ## What it does
 
