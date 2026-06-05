@@ -7,11 +7,18 @@ ARG BASE_IMAGE=python:3.12-slim@sha256:090ba77e2958f6af52a5341f788b50b032dd4ca28
 
 # ---------- builder ----------
 FROM ${BASE_IMAGE} AS builder
+# build-essential needed to compile capstone from source on arm64
+# (capstone 4.x has no aarch64 wheel; pyocd 0.36 requires capstone<5)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
 RUN pip install --no-cache-dir "build>=1.2"
 COPY pyproject.toml README.md ./
 COPY src/ ./src/
 RUN python -m build --wheel
+RUN python -m venv /opt/venv \
+    && /opt/venv/bin/pip install --no-cache-dir dist/*.whl
 
 # ---------- runtime ----------
 FROM ${BASE_IMAGE} AS runtime
@@ -32,9 +39,8 @@ RUN apt-get update \
         udev \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
-COPY --from=builder /build/dist/*.whl ./
-RUN pip install --no-cache-dir *.whl && rm *.whl
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
 ENV PROBE_BROKER_TRANSPORTS=stdio,socket \
     PROBE_BROKER_SOCKET_PATH=/run/brontes-probe-mcp/probe.sock \
