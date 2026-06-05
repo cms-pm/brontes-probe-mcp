@@ -9,6 +9,7 @@ from brontes_probe_mcp.core.config import BrokerConfig
 from brontes_probe_mcp.transports import socket as socket_transport
 from brontes_probe_mcp.transports import stdio as stdio_transport
 from brontes_probe_mcp.transports import tcp as tcp_transport
+from brontes_probe_mcp.transports.tcp import _resolve_token
 
 
 def serve_all(config: BrokerConfig, broker: BrokerCore) -> None:
@@ -23,6 +24,11 @@ def serve_all(config: BrokerConfig, broker: BrokerCore) -> None:
             )
         )
     if "tcp" in config.transports:
+        if _resolve_token(config) is None:
+            raise RuntimeError(
+                "TCP transport requires a bearer token; "
+                "set PROBE_BROKER_TOKEN or PROBE_BROKER_TOKEN_FILE"
+            )
         threads.append(
             threading.Thread(
                 target=tcp_transport.run,
@@ -48,13 +54,11 @@ def serve_all(config: BrokerConfig, broker: BrokerCore) -> None:
 
 
 def main() -> None:
+    signal.signal(signal.SIGTERM, lambda *_: None)
     config = BrokerConfig()
     broker = BrokerCore(config=config)
     serve_all(config, broker)
 
-
-# Allow SIGTERM to cleanly exit
-signal.signal(signal.SIGTERM, lambda *_: None)
 
 if __name__ == "__main__":
     main()

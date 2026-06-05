@@ -33,6 +33,7 @@ def _to_json_obj(obj: Any) -> Any:
 
 def dispatch(broker: BrokerCore, method: str, kwargs: dict[str, Any]) -> Any:
     """Resolve verb alias, coerce Path args, call broker method, return result."""
+    kwargs = dict(kwargs)
     resolved = _VERB_ALIAS.get(method, method)
 
     path_keys = _PATH_KWARGS.get(resolved, frozenset())
