@@ -9,6 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Multi-stage production `Dockerfile` — `builder` stage builds the wheel;
+  `runtime` stage installs from wheel + `libusb`. Base image pinned to
+  `python:3.12-slim@sha256:090ba77e…` (R5 mitigation: reproducibility via
+  digest lock, honest caveat documented here).
+- `docker-compose.yml` — Option C bind-mount socket deployment
+  (`container_name: brontes-probe-mcp`, `restart: unless-stopped`,
+  healthcheck via `brontes-probe-mcp-cli session-status`, USB device
+  passthrough).
+- `.github/workflows/release.yml` — GHCR multi-arch build (`linux/amd64` +
+  `linux/arm64`) gated on the full 2×2 test matrix; cosign OIDC keyless
+  signing (Fulcio + Rekor, no key custody). Triggers on push to `main` and
+  version tags.
+- `docs/catalog/docker-mcp-catalog-manifest.yaml` — Docker MCP Catalog
+  submission manifest draft (submission gated on 1.4).
+- Docker MCP Catalog submission-rules snapshot captured in
+  `artifacts/validation/phase-1/chunk-1.3/run_20260604T000000Z/` (R3
+  mitigation).
+- README Quick start section with Option A (socket), Option B (TCP), and
+  Option C (Compose) `docker run`/`docker compose` snippets.
+
+### Note on build reproducibility (R5)
+
+The Dockerfile pins the Python base image by digest. The digest captures the
+exact layer bytes pulled at build time. A future `docker pull python:3.12-slim`
+may return different bytes under the same tag. To refresh the pin:
+`docker pull python:3.12-slim && docker inspect --format '{{index .RepoDigests 0}}'`.
+
+---
+
+## Pre-0.1.0 development history
+
+### Added
+
 - `pyproject.toml` — PEP 621 metadata, setuptools src-layout backend,
   `requires-python = ">=3.11"`, runtime deps (`pydantic>=2.6`,
   `pydantic-settings>=2.2`, `mcp>=1.0`), `[dev]` extra, console script
