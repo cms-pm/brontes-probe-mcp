@@ -1,7 +1,7 @@
 # PQ-003 — What is the Expected Shape of `MemReadResult.value`?
 
 ## Status
-Open
+**Closed** — 2026-06-04 (branch `fix/board-com-003-through-010`)
 
 ## Source
 MTG-0001 (FND-003), 2026-06-04
@@ -68,3 +68,14 @@ match.
 
 ## Raised By
 MTG-0001 / COM-003 (reliability review, 2026-06-04)
+
+## Resolution
+
+**Decision: Option A for `format="hex"`, Option C for `format="bytes"` (default).**
+
+- `format="hex"` → `list[str]` of GDB word hex strings (e.g. `["0xDEADBEEF", "0x00000001"]`)
+- `format="bytes"` (default) → base64-encoded bytes string (little-endian word order)
+
+`MemReadResult.value` typed as `str | list[str]`. Implemented in `BrokerCore.mem_read` via `_parse_gdb_hex_dump()`.
+
+Tests: `test_mem_read_format_hex`, `test_mem_read_format_bytes_default`.

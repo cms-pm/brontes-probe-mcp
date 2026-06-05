@@ -29,6 +29,11 @@ def serve_all(config: BrokerConfig, broker: BrokerCore) -> None:
                 "TCP transport requires a bearer token; "
                 "set PROBE_BROKER_TOKEN or PROBE_BROKER_TOKEN_FILE"
             )
+        if not config.tcp_allow_remote and config.tcp_host != "127.0.0.1":
+            raise RuntimeError(
+                f"tcp_allow_remote=False but tcp_host={config.tcp_host!r}; "
+                "set PROBE_BROKER_TCP_ALLOW_REMOTE=true to allow remote connections"
+            )
         threads.append(
             threading.Thread(
                 target=tcp_transport.run,
