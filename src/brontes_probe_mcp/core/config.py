@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
+from pydantic import Field
 from pydantic.fields import FieldInfo
 from pydantic_settings import (
     BaseSettings,
@@ -40,7 +42,9 @@ class BrokerConfig(BaseSettings):
     transports: list[str] = ["stdio", "socket"]
 
     # Unix-socket transport
-    socket_path: str = "/run/brontes-probe-mcp/probe.sock"
+    socket_path: str = Field(
+        default_factory=lambda: str(Path.home() / ".brontes-probe-mcp" / "probe.sock")
+    )
 
     # TCP transport
     tcp_host: str = "127.0.0.1"
@@ -60,6 +64,12 @@ class BrokerConfig(BaseSettings):
     gdb_port: int = 3333
     log_dir: str = "/tmp/brontes-probe-mcp-logs/"
     default_pack: str | None = None
+    # Probe-agent state directory — where probe-agent CLI writes agent.json
+    # and where session_start() looks for a running agent to auto-discover.
+    # Dockerfile overrides to /run/brontes-probe-mcp (the volume mount root).
+    agent_state_dir: str = Field(
+        default_factory=lambda: str(Path.home() / ".brontes-probe-mcp")
+    )
 
     # ITM/SWO
     enable_swv: bool = False

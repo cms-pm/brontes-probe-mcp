@@ -12,8 +12,9 @@ def test_default_transports() -> None:
 
 
 def test_default_socket_path() -> None:
+    from pathlib import Path
     config = BrokerConfig()
-    assert config.socket_path == "/run/brontes-probe-mcp/probe.sock"
+    assert config.socket_path == str(Path.home() / ".brontes-probe-mcp" / "probe.sock")
 
 
 def test_default_tcp_host() -> None:

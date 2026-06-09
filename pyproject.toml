@@ -27,7 +27,7 @@ dependencies = [
     "pydantic>=2.6",
     "pydantic-settings>=2.2",
     "mcp>=1.0",
-    "pyocd>=0.36,<0.37",
+    "pyocd>=0.36",
 ]
 
 [project.optional-dependencies]

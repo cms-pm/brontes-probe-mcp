@@ -31,8 +31,8 @@ instance, controlled by `PROBE_BROKER_TRANSPORTS`:
 
 ## Quick start
 
-The recommended deployment path is the container image. A PyPI wheel is not
-yet published.
+Two deployment paths are available: the container image (no local Python install
+required) and a native pip install (no Docker required).
 
 **Option A — Unix socket (Linux, recommended)**
 
@@ -45,12 +45,15 @@ docker run -d --name brontes-probe-mcp \
 
 **Option B — Probe agent split (macOS / Docker Desktop)**
 
-Docker Desktop on macOS cannot pass USB devices into containers. Run pyocd
-natively as a probe agent; the container connects to it over TCP:
+Docker Desktop on macOS cannot pass USB devices into containers. Install the
+wheel on the host to manage the probe agent, then point the container at it:
 
 ```bash
-# Terminal 1 — probe agent (runs on the macOS host, owns the USB device)
-pyocd gdbserver --persist --target <your-target> --port 3333
+# Install the CLI on the host (once)
+pip install brontes-probe-mcp
+
+# Start probe agent (auto-detects target if only one probe is connected)
+brontes-probe-mcp-cli probe-agent start --target <your-target>
 
 # .mcp.json — container connects to the host agent, no --device needed
 ```
@@ -94,6 +97,35 @@ curl -fsSL https://raw.githubusercontent.com/cms-pm/brontes-probe-mcp/main/docke
   -o docker-compose.yml
 docker compose up -d
 ```
+
+**Option E — pip install (no Docker, all platforms)**
+
+Requires `arm-none-eabi-gdb` on `PATH` (install via your OS package manager or
+[ARM toolchain download](https://developer.arm.com/downloads/-/arm-gnu-toolchain-downloads)).
+
+```bash
+pip install brontes-probe-mcp
+
+# Start probe agent (auto-detects target if unambiguous)
+brontes-probe-mcp-cli probe-agent start [--target <target>]
+```
+
+Add to `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "brontes-probe-mcp": {
+      "command": "brontes-probe-mcp-cli",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+The `probe-agent start` command writes a state file to `~/.brontes-probe-mcp/agent.json`.
+`session_start` detects it automatically — no `PROBE_BROKER_GDB_HOST` configuration needed.
+To stop the agent: `brontes-probe-mcp-cli probe-agent stop`.
 
 Pin by digest for production use — the digest is the binary-level
 reproducibility contract:
@@ -251,16 +283,23 @@ the binary-level reproducibility contract — pin it, don't float on a tag.
 
 ## CLI
 
-The `brontes-probe-mcp-cli` console script provides one-shot method
-invocations for shell scripts and debugging:
+The `brontes-probe-mcp-cli` console script manages the server and probe agent:
 
 ```bash
 brontes-probe-mcp-cli --version
-brontes-probe-mcp-cli --config-dump   # print resolved config as JSON
+brontes-probe-mcp-cli --config-dump            # print resolved config as JSON
+
+# Start all configured transports (MCP server entry point for pip install)
+brontes-probe-mcp-cli serve
+
+# Probe agent — manages the host-side pyocd gdbserver daemon
+brontes-probe-mcp-cli probe-agent start [--target TARGET] [--port PORT] [--probe-uid UID]
+brontes-probe-mcp-cli probe-agent status       # prints JSON; exits 1 if not healthy
+brontes-probe-mcp-cli probe-agent stop [--force]
 ```
 
-Full verb surface (`session-start`, `program`, `halt`, `mem-read`, etc.)
-lands with the transport implementation.
+Target auto-detection: if `--target` is omitted and exactly one probe is connected
+with a deterministic target, `probe-agent start` uses it automatically.
 
 ## Configuration
 
@@ -276,6 +315,7 @@ All configuration is via `PROBE_BROKER_*` environment variables:
 | `PROBE_BROKER_BACKEND` | `pyocd` | Debug backend (`pyocd` or `openocd`) |
 | `PROBE_BROKER_GDB_HOST` | `127.0.0.1` | GDB server host — set to `host.docker.internal` to connect to an external probe agent instead of spawning pyocd locally |
 | `PROBE_BROKER_DEFAULT_PACK` | _(none)_ | Default CMSIS pack path — used by `target_suggest` and `session_start` when no `pack=` argument is supplied |
+| `PROBE_BROKER_AGENT_STATE_DIR` | `~/.brontes-probe-mcp` | Directory where `probe-agent start` writes its state file and where `session_start` looks for a running agent |
 | `PROBE_BROKER_DIGEST_CHECK` | `enforce` | Image digest verification (`enforce`, `warn`, `skip`) |
 
 ## Flash memory snapshot (`probe_blackbox_export`)

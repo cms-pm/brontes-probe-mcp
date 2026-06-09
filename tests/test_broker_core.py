@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+import json as _json
 import subprocess
 from pathlib import Path
 from subprocess import CompletedProcess
@@ -345,6 +346,93 @@ def test_local_spawn_still_calls_popen(
     monkeypatch.setattr(session_module.os, "getpgid", lambda pid: pid)
     monkeypatch.setattr(broker._sessions, "_tcp_ready", lambda *a, **kw: True)
     broker.session_start(target="stm32g474")
+    mock_popen.assert_called_once()
+
+
+def test_auto_discovery_uses_agent_when_state_file_healthy(
+    mock_run: MagicMock, mock_popen: MagicMock,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    state_dir = tmp_path / "agent_state"
+    state_dir.mkdir()
+    (state_dir / "agent.json").write_text(
+        _json.dumps({"gdb_host": "127.0.0.1", "gdb_port": 3333})
+    )
+    config = BrokerConfig(
+        log_dir=str(tmp_path / "logs"),
+        agent_state_dir=str(state_dir),
+    )
+    b = BrokerCore(
+        config=config, _subprocess_run=mock_run, _subprocess_popen=mock_popen
+    )
+    monkeypatch.setattr(b._sessions, "_probe_tcp", lambda *a, **kw: True)
+    monkeypatch.setattr(b._sessions, "_tcp_ready", lambda *a, **kw: True)
+
+    result = b.session_start(target="stm32g474")
+    assert result.state == "healthy"
+    mock_popen.assert_not_called()
+
+
+def test_auto_discovery_falls_through_when_agent_unreachable(
+    mock_run: MagicMock, mock_popen: MagicMock,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    state_dir = tmp_path / "agent_state"
+    state_dir.mkdir()
+    (state_dir / "agent.json").write_text(
+        _json.dumps({"gdb_host": "127.0.0.1", "gdb_port": 3333})
+    )
+    config = BrokerConfig(
+        log_dir=str(tmp_path / "logs"),
+        agent_state_dir=str(state_dir),
+    )
+    b = BrokerCore(
+        config=config, _subprocess_run=mock_run, _subprocess_popen=mock_popen
+    )
+    monkeypatch.setattr(session_module.os, "getpgid", lambda pid: pid)
+    monkeypatch.setattr(b._sessions, "_probe_tcp", lambda *a, **kw: False)
+    monkeypatch.setattr(b._sessions, "_tcp_ready", lambda *a, **kw: True)
+
+    b.session_start(target="stm32g474")
+    mock_popen.assert_called_once()
+
+
+def test_auto_discovery_skips_malformed_state_file(
+    mock_run: MagicMock, mock_popen: MagicMock,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    state_dir = tmp_path / "agent_state"
+    state_dir.mkdir()
+    (state_dir / "agent.json").write_text("not valid json{{")
+    config = BrokerConfig(
+        log_dir=str(tmp_path / "logs"),
+        agent_state_dir=str(state_dir),
+    )
+    b = BrokerCore(
+        config=config, _subprocess_run=mock_run, _subprocess_popen=mock_popen
+    )
+    monkeypatch.setattr(session_module.os, "getpgid", lambda pid: pid)
+    monkeypatch.setattr(b._sessions, "_tcp_ready", lambda *a, **kw: True)
+
+    b.session_start(target="stm32g474")
+    mock_popen.assert_called_once()
+
+
+def test_auto_discovery_skips_when_no_state_file(
+    mock_run: MagicMock, mock_popen: MagicMock,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    config = BrokerConfig(
+        log_dir=str(tmp_path / "logs"),
+        agent_state_dir=str(tmp_path / "no_such_dir"),
+    )
+    b = BrokerCore(
+        config=config, _subprocess_run=mock_run, _subprocess_popen=mock_popen
+    )
+    monkeypatch.setattr(session_module.os, "getpgid", lambda pid: pid)
+    monkeypatch.setattr(b._sessions, "_tcp_ready", lambda *a, **kw: True)
+
+    b.session_start(target="stm32g474")
     mock_popen.assert_called_once()
 
 

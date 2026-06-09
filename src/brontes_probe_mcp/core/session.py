@@ -188,6 +188,7 @@ class SessionManager:
                 _kill_pgid(pgid, signal.SIGKILL, fallback_pid=pid)
 
     def start(self, **profile_kwargs: object) -> SessionStatus:
+        profile = str(profile_kwargs.pop("profile", _PROFILE))
         target_raw = profile_kwargs.get("target")
         target = str(target_raw) if target_raw is not None else "unknown"
         probe_uid_raw = profile_kwargs.get("probe_uid")
@@ -207,12 +208,30 @@ class SessionManager:
         # _derive_state() and _stop_meta() both handle absent pid gracefully.
         external_agent = gdb_host not in ("127.0.0.1", "localhost", "::1")
 
+        # Auto-discovery: if a probe-agent state file is present and healthy,
+        # prefer it over spawning a new pyocd process — even on loopback.
+        # Written by `brontes-probe-mcp-cli probe-agent start`; the Docker
+        # volume mount makes the host-side file visible inside the container.
+        if not external_agent:
+            _agent_json = Path(self._config.agent_state_dir) / "agent.json"
+            if _agent_json.exists():
+                try:
+                    _am = json.loads(_agent_json.read_text())
+                    _ah = str(_am.get("gdb_host") or "127.0.0.1")
+                    _ap = _coerce_int(_am.get("gdb_port"), self._config.gdb_port)
+                    if self._probe_tcp(_ah, _ap):
+                        external_agent = True
+                        gdb_host = _ah
+                        gdb_port = _ap
+                except (json.JSONDecodeError, KeyError, ValueError, OSError):
+                    pass  # malformed or unreadable state file — fall through to spawn
+
         with _OperationLock(self._lock_path()):
             # Single-session: implicitly replace any active session
-            existing = self._read_meta()
+            existing = self._read_meta(profile)
             if existing is not None:
                 self._stop_meta(existing)
-                self._remove_meta()
+                self._remove_meta(profile)
 
             if external_agent:
                 if not self._tcp_ready(gdb_host, gdb_port):
@@ -229,7 +248,7 @@ class SessionManager:
                     "target": target,
                     "probe_uid": probe_uid,
                 }
-                self._write_meta(meta)
+                self._write_meta(meta, profile)
             else:
                 args: list[str] = [
                     pyocd_bin,
@@ -273,11 +292,11 @@ class SessionManager:
                     "target": target,
                     "probe_uid": probe_uid,
                 }
-                self._write_meta(meta)
+                self._write_meta(meta, profile)
 
                 if not self._tcp_ready(gdb_host, gdb_port):
                     self._stop_meta(meta, force=True)
-                    self._remove_meta()
+                    self._remove_meta(profile)
                     return SessionStatus(
                         protocol_version=_PROTOCOL_VERSION,
                         state="unhealthy",
@@ -301,12 +320,12 @@ class SessionManager:
             probe_uid=probe_uid,
         )
 
-    def stop(self, force: bool = False) -> SessionStatus:
+    def stop(self, force: bool = False, profile: str = _PROFILE) -> SessionStatus:  # noqa: E501
         with _OperationLock(self._lock_path()):
-            meta = self._read_meta()
+            meta = self._read_meta(profile)
             if meta is not None:
                 self._stop_meta(meta, force=force)
-                self._remove_meta()
+                self._remove_meta(profile)
 
         return SessionStatus(
             protocol_version=_PROTOCOL_VERSION,
@@ -315,8 +334,8 @@ class SessionManager:
             state="stopped",
         )
 
-    def status(self) -> SessionStatus:
-        meta = self._read_meta()
+    def status(self, profile: str = _PROFILE) -> SessionStatus:
+        meta = self._read_meta(profile)
         if meta is None:
             return SessionStatus(
                 protocol_version=_PROTOCOL_VERSION,
