@@ -193,12 +193,19 @@ class SessionManager:
         probe_uid_raw = profile_kwargs.get("probe_uid")
         probe_uid = str(probe_uid_raw) if probe_uid_raw is not None else None
         backend = str(profile_kwargs.get("backend") or self._config.backend)
+        gdb_host = str(profile_kwargs.get("gdb_host") or self._config.gdb_host)
         gdb_port = _coerce_int(profile_kwargs.get("gdb_port"), self._config.gdb_port)
         pyocd_bin = str(profile_kwargs.get("pyocd_bin") or self._config.pyocd_bin)
         frequency_hz = profile_kwargs.get("frequency_hz")
         pack = profile_kwargs.get("pack") or self._config.default_pack
         extra_raw = profile_kwargs.get("extra_args")
         extra_args = [str(a) for a in extra_raw] if isinstance(extra_raw, list) else []
+
+        # External agent mode: PROBE_BROKER_GDB_HOST set to a non-loopback address
+        # means pyocd gdbserver is running on another host (e.g. the Docker host via
+        # host.docker.internal). Skip local pyocd spawn; just verify connectivity.
+        # _derive_state() and _stop_meta() both handle absent pid gracefully.
+        external_agent = gdb_host not in ("127.0.0.1", "localhost", "::1")
 
         with _OperationLock(self._lock_path()):
             # Single-session: implicitly replace any active session
@@ -207,65 +214,83 @@ class SessionManager:
                 self._stop_meta(existing)
                 self._remove_meta()
 
-            args: list[str] = [
-                pyocd_bin,
-                "gdbserver",
-                "--target",
-                target,
-                "--port",
-                str(gdb_port),
-                "--persist",  # keep running after each GDB client disconnects
-            ]
-            if probe_uid:
-                args.extend(["--uid", probe_uid])
-            if frequency_hz is not None:
-                args.extend(["--frequency", str(frequency_hz)])
-            if pack is not None:
-                args.extend(["--pack", str(pack)])
-            args.extend(extra_args)
+            if external_agent:
+                if not self._tcp_ready(gdb_host, gdb_port):
+                    return SessionStatus(
+                        protocol_version=_PROTOCOL_VERSION,
+                        state="unhealthy",
+                        target=target,
+                    )
+                meta: dict[str, Any] = {
+                    "backend": backend,
+                    "gdb_host": gdb_host,
+                    "gdb_port": gdb_port,
+                    "started_epoch_s": time.time(),
+                    "target": target,
+                    "probe_uid": probe_uid,
+                }
+                self._write_meta(meta)
+            else:
+                args: list[str] = [
+                    pyocd_bin,
+                    "gdbserver",
+                    "--target",
+                    target,
+                    "--port",
+                    str(gdb_port),
+                    "--persist",  # keep running after each GDB client disconnects
+                ]
+                if probe_uid:
+                    args.extend(["--uid", probe_uid])
+                if frequency_hz is not None:
+                    args.extend(["--frequency", str(frequency_hz)])
+                if pack is not None:
+                    args.extend(["--pack", str(pack)])
+                args.extend(extra_args)
 
-            log_path = str(self._log_dir() / f"{target}.log")
-            with open(log_path, "a") as log_fh:
-                proc = self._popen(
-                    args,
-                    stdout=log_fh,
-                    stderr=subprocess.STDOUT,
-                    start_new_session=True,
-                )
+                log_path = str(self._log_dir() / f"{target}.log")
+                with open(log_path, "a") as log_fh:
+                    proc = self._popen(
+                        args,
+                        stdout=log_fh,
+                        stderr=subprocess.STDOUT,
+                        start_new_session=True,
+                    )
 
-            try:
-                pgid = os.getpgid(proc.pid)
-            except OSError:
-                pgid = proc.pid
+                try:
+                    pgid = os.getpgid(proc.pid)
+                except OSError:
+                    pgid = proc.pid
 
-            meta: dict[str, Any] = {
-                "backend": backend,
-                "pid": proc.pid,
-                "process_group_id": pgid,
-                "gdb_host": "127.0.0.1",
-                "gdb_port": gdb_port,
-                "log_path": log_path,
-                "started_epoch_s": time.time(),
-                "target": target,
-                "probe_uid": probe_uid,
-            }
-            self._write_meta(meta)
+                meta = {
+                    "backend": backend,
+                    "pid": proc.pid,
+                    "process_group_id": pgid,
+                    "gdb_host": gdb_host,
+                    "gdb_port": gdb_port,
+                    "log_path": str(self._log_dir() / f"{target}.log"),
+                    "started_epoch_s": time.time(),
+                    "target": target,
+                    "probe_uid": probe_uid,
+                }
+                self._write_meta(meta)
 
-            if not self._tcp_ready("127.0.0.1", gdb_port):
-                self._stop_meta(meta, force=True)
-                self._remove_meta()
-                return SessionStatus(
-                    protocol_version=_PROTOCOL_VERSION,
-                    state="unhealthy",
-                    target=target,
-                )
+                if not self._tcp_ready(gdb_host, gdb_port):
+                    self._stop_meta(meta, force=True)
+                    self._remove_meta()
+                    return SessionStatus(
+                        protocol_version=_PROTOCOL_VERSION,
+                        state="unhealthy",
+                        target=target,
+                    )
 
-        # Brief pause outside the lock: pyocd briefly closes its listen socket
-        # while processing the probe connection from _tcp_ready before
+        # Brief pause after releasing the lock: pyocd briefly closes its listen
+        # socket while processing the probe connection from _tcp_ready before
         # re-entering accept(). An immediate status() call would race against
-        # that window and return "unhealthy". Holding the lock during the sleep
-        # is unnecessary — no meta mutation happens here.
-        time.sleep(0.5)
+        # that window and return "unhealthy". External agent is already stable —
+        # no pause needed there.
+        if not external_agent:
+            time.sleep(0.5)
 
         return SessionStatus(
             protocol_version=_PROTOCOL_VERSION,

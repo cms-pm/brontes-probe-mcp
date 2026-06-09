@@ -114,7 +114,7 @@ class BrokerCore:
             "--batch",
             "--nx",
             "-ex",
-            f"target remote {self._config.tcp_host}:{self._config.gdb_port}",
+            f"target remote {self._config.gdb_host}:{self._config.gdb_port}",
         ]
         if symbol_file is not None:
             args.extend(["-ex", f"file {symbol_file}"])

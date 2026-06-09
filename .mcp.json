@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "brontes-probe-mcp": {
+      "command": "docker",
+      "args": [
+        "run", "--rm", "-i",
+        "-v", "${HOME}/.brontes-probe-mcp:/run/brontes-probe-mcp",
+        "-v", "${HOME}/.brontes-probe-mcp/packs:/packs",
+        "-e", "PROBE_BROKER_TRANSPORTS=stdio,socket",
+        "-e", "CMSIS_PACK_ROOT=/packs",
+        "-e", "PROBE_BROKER_GDB_HOST=host.docker.internal",
+        "ghcr.io/cms-pm/brontes-probe-mcp@sha256:77e58b86015ddf0b36fba47d267669ed7493ea5ff6794dbe80628fa4dce13ae7"
+      ]
+    }
+  }
+}
