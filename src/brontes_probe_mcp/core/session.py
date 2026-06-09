@@ -145,12 +145,14 @@ class SessionManager:
                 time.sleep(0.1)
         return False
 
-    def _probe_tcp(self, host: str, port: int) -> bool:
-        try:
-            with socket.create_connection((host, port), timeout=0.5):
-                return True
-        except OSError:
-            return False
+    def _probe_tcp(self, host: str, port: int, retries: int = 3) -> bool:
+        for _ in range(retries):
+            try:
+                with socket.create_connection((host, port), timeout=0.5):
+                    return True
+            except OSError:
+                time.sleep(0.1)
+        return False
 
     def _derive_state(self, meta: dict[str, Any]) -> str:
         pid_raw = meta.get("pid")
@@ -194,7 +196,7 @@ class SessionManager:
         gdb_port = _coerce_int(profile_kwargs.get("gdb_port"), self._config.gdb_port)
         pyocd_bin = str(profile_kwargs.get("pyocd_bin") or self._config.pyocd_bin)
         frequency_hz = profile_kwargs.get("frequency_hz")
-        pack = profile_kwargs.get("pack")
+        pack = profile_kwargs.get("pack") or self._config.default_pack
         extra_raw = profile_kwargs.get("extra_args")
         extra_args = [str(a) for a in extra_raw] if isinstance(extra_raw, list) else []
 
@@ -212,6 +214,7 @@ class SessionManager:
                 target,
                 "--port",
                 str(gdb_port),
+                "--persist",  # keep running after each GDB client disconnects
             ]
             if probe_uid:
                 args.extend(["--uid", probe_uid])
@@ -256,6 +259,11 @@ class SessionManager:
                     state="unhealthy",
                     target=target,
                 )
+            # Brief pause: pyocd may briefly close its listen socket while
+            # processing the probe connection from _tcp_ready before
+            # re-entering accept(). Without this, an immediate status() call
+            # races against that window and returns "unhealthy".
+            time.sleep(0.5)
 
         return SessionStatus(
             protocol_version=_PROTOCOL_VERSION,

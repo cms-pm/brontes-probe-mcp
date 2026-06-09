@@ -15,14 +15,68 @@ from brontes_probe_mcp.transports import _rpc
 
 _TOOLS: list[types.Tool] = [
     types.Tool(
-        name="session_start",
-        description="Start a probe session",
+        name="probe_discover",
+        description=(
+            "List all debug probes currently connected to the host. "
+            "Returns probe UIDs, vendor/product names, and board identity "
+            "when available. Call this before session_start to find the "
+            "probe_uid. Does not require an active session."
+        ),
+        inputSchema={"type": "object", "properties": {}},
+    ),
+    types.Tool(
+        name="target_suggest",
+        description=(
+            "Search pyocd's known target database for MCU part strings "
+            "matching query. Returns pyocd target names, part numbers, "
+            "families, and pack source. Pass the result name directly to "
+            "session_start(target=...). Does not require an active session. "
+            "Provide pack= (same path as session_start) to include targets "
+            "from a locally-mounted CMSIS pack."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
-                "target": {"type": "string"},
-                "probe_uid": {"type": "string"},
+                "query": {
+                    "type": "string",
+                    "description": "MCU family, part number, or vendor (substring)",
+                },
+                "pack": {
+                    "type": "string",
+                    "description": (
+                        "CMSIS pack path (overrides PROBE_BROKER_DEFAULT_PACK)"
+                    ),
+                },
             },
+            "required": ["query"],
+        },
+    ),
+    types.Tool(
+        name="session_start",
+        description=(
+            "Start a pyocd gdbserver session for the specified target. "
+            "Use probe_discover to find probe_uid and target_suggest to "
+            "find the correct target string before calling this."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "target": {
+                    "type": "string",
+                    "description": "pyocd target string, e.g. stm32g474ceux",
+                },
+                "probe_uid": {
+                    "type": "string",
+                    "description": "UID from probe_discover; omit if single probe",
+                },
+                "pack": {
+                    "type": "string",
+                    "description": (
+                        "CMSIS pack path (overrides PROBE_BROKER_DEFAULT_PACK)"
+                    ),
+                },
+            },
+            "required": ["target"],
         },
     ),
     types.Tool(
@@ -176,10 +230,60 @@ _TOOLS: list[types.Tool] = [
             },
         },
     ),
+    types.Tool(
+        name="pack_search",
+        description=(
+            "Search the CMSIS pack index for packs matching an MCU family or "
+            "vendor query. Returns pack names and versions. Call pack_update "
+            "first if results are empty for a known family. Does not require "
+            "an active session."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "MCU family, vendor, or part prefix",
+                },
+            },
+            "required": ["query"],
+        },
+    ),
+    types.Tool(
+        name="pack_install",
+        description=(
+            "Install a CMSIS pack by name into the persistent pack cache. "
+            "Use pack_search to find the exact pack name first. After "
+            "installation, target_suggest and session_start will find the "
+            "target automatically. May take 30–120 s on first install. "
+            "Does not require an active session."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "pack": {
+                    "type": "string",
+                    "description": "Exact pack name from pack_search output",
+                },
+            },
+            "required": ["pack"],
+        },
+    ),
+    types.Tool(
+        name="pack_update",
+        description=(
+            "Refresh the CMSIS pack index from the online registry. "
+            "Call this once after first setup, or when pack_search returns "
+            "no results for a known MCU family. Does not require a session."
+        ),
+        inputSchema={"type": "object", "properties": {}},
+    ),
 ]
 
 # Map stdio tool names → broker method names
 _STDIO_TO_BROKER: dict[str, str] = {
+    "probe_discover": "probe_discover",
+    "target_suggest": "target_suggest",
     "session_start": "session_start",
     "session_stop": "session_stop",
     "session_status": "session_status",
@@ -196,6 +300,9 @@ _STDIO_TO_BROKER: dict[str, str] = {
     "lane_release": "lane_release",
     "lane_resume": "lane_resume",
     "recent_lines": "recent_lines",
+    "pack_search": "pack_search",
+    "pack_install": "pack_install",
+    "pack_update": "pack_update",
 }
 
 # Path-coercion: tool name → kwarg keys that need Path conversion

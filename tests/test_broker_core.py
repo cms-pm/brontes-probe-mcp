@@ -4,7 +4,6 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 from subprocess import CompletedProcess
-from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -18,9 +17,11 @@ from brontes_probe_mcp.core.models import (
     ItmStreamSummary,
     LaneStatus,
     MemReadResult,
+    ProbeDiscoverResult,
     ProbeState,
     ProgramResult,
     SessionStatus,
+    TargetSuggestResult,
 )
 
 
@@ -134,13 +135,13 @@ def test_blackbox_export_returns_result(
     broker_with_session: BrokerCore, mock_run: MagicMock, tmp_path: Path
 ) -> None:
     out = tmp_path / "export.bin"
-
-    def _side_effect(*_args: object, **_kwargs: object) -> Any:
-        out.write_bytes(b"\xde\xad" * 8)
-        return _completed()
-
-    mock_run.side_effect = _side_effect
-    result = broker_with_session.blackbox_export(out=out)
+    # New implementation: GDB x/Nwx dumps hex words; Python writes the binary file.
+    mock_run.return_value = _completed(
+        stdout="0x08000000:\t0xdeadbeef\t0xdeadbeef\t0xdeadbeef\t0xdeadbeef\n"
+    )
+    result = broker_with_session.blackbox_export(
+        out=out, start_addr=0x08000000, end_addr=0x08000010
+    )
     assert isinstance(result, BlackboxExportResult)
     assert result.bytes_written == 16
 
@@ -384,24 +385,25 @@ def test_program_bytes_from_gdb_load_output(
     assert result.programmed_bytes == 4660
 
 
-# ── COM-007: blackbox_export uses GDB dump binary memory ─────────────────────
+# ── COM-007: blackbox_export uses GDB x/Nwx (not dump binary memory) ─────────
 
 def test_blackbox_export_calls_gdb_dump(
     broker_with_session: BrokerCore, mock_run: MagicMock, tmp_path: Path
 ) -> None:
     out = tmp_path / "snap.bin"
-
-    def _side_effect(*args: object, **_kwargs: object) -> Any:
-        out.write_bytes(b"\x00" * 512 * 1024)
-        return _completed()
-
-    mock_run.side_effect = _side_effect
-    result = broker_with_session.blackbox_export(out=out)
+    # Implementation uses x/Nwx; provide minimal fake hex output so bytes_written > 0.
+    mock_run.return_value = _completed(
+        stdout="0x08000000:\t0x00000000\t0x00000000\t0x00000000\t0x00000000\n"
+    )
+    result = broker_with_session.blackbox_export(
+        out=out, start_addr=0x08000000, end_addr=0x08000010
+    )
     assert result.bytes_written > 0
     call_args = mock_run.call_args
     cmd = call_args[0][0]
-    assert any("dump binary memory" in str(a) for a in cmd)
+    # GDB x/Nwx command — confirms address is included, no "dump binary memory"
     assert any("08000000" in str(a) for a in cmd)
+    assert not any("dump binary memory" in str(a) for a in cmd)
 
 
 # ── COM-004: lane thread-safety ───────────────────────────────────────────────
@@ -431,3 +433,139 @@ def test_lane_supervisor_concurrent_mutations(broker: BrokerCore) -> None:
     for t in threads:
         t.join()
     assert errors == [], f"Thread errors: {errors}"
+
+
+# ── probe_discover ────────────────────────────────────────────────────────────
+
+_PROBES_JSON = (
+    '{"boards": [{"unique_id": "abc123", "info": "ST-Link",'
+    ' "vendor_name": "STMicroelectronics", "product_name": "STLINK-V3",'
+    ' "board_name": null, "board_vendor": null}]}'
+)
+
+
+def test_probe_discover_returns_result(
+    broker: BrokerCore, mock_run: MagicMock
+) -> None:
+    mock_run.return_value = _completed(stdout=_PROBES_JSON)
+    result = broker.probe_discover()
+    assert isinstance(result, ProbeDiscoverResult)
+    assert len(result.probes) == 1
+    assert result.probes[0].uid == "abc123"
+
+
+def test_probe_discover_empty_boards(
+    broker: BrokerCore, mock_run: MagicMock
+) -> None:
+    mock_run.return_value = _completed(stdout='{"boards": []}')
+    result = broker.probe_discover()
+    assert result.probes == []
+
+
+def test_probe_discover_pyocd_failure_raises(
+    broker: BrokerCore, mock_run: MagicMock
+) -> None:
+    mock_run.return_value = _completed(returncode=1, stderr="no probes")
+    with pytest.raises(RuntimeError, match="pyocd json --probes failed"):
+        broker.probe_discover()
+
+
+# ── target_suggest ────────────────────────────────────────────────────────────
+
+_TARGETS_JSON = (
+    '{"targets": ['
+    '{"name": "stm32g474ceux", "vendor": "STMicroelectronics", '
+    '"part_number": "STM32G474CEUx", "part_families": ["STM32G4"], "source": "pack"},'
+    '{"name": "nrf52840", "vendor": "Nordic", "part_number": "nRF52840", '
+    '"part_families": ["nRF52"], "source": "builtin"}'
+    ']}'
+)
+
+
+def test_target_suggest_returns_result(
+    broker: BrokerCore, mock_run: MagicMock
+) -> None:
+    mock_run.return_value = _completed(stdout=_TARGETS_JSON)
+    result = broker.target_suggest("stm32g4")
+    assert isinstance(result, TargetSuggestResult)
+    assert result.query == "stm32g4"
+    assert len(result.targets) == 1
+    assert result.targets[0].name == "stm32g474ceux"
+
+
+def test_target_suggest_no_match(
+    broker: BrokerCore, mock_run: MagicMock
+) -> None:
+    mock_run.return_value = _completed(stdout=_TARGETS_JSON)
+    result = broker.target_suggest("zzz_no_such_mcu")
+    assert result.targets == []
+
+
+def test_target_suggest_pyocd_failure_raises(
+    broker: BrokerCore, mock_run: MagicMock
+) -> None:
+    mock_run.return_value = _completed(returncode=1, stderr="pack not found")
+    with pytest.raises(RuntimeError, match="pyocd json --targets failed"):
+        broker.target_suggest("stm32")
+
+
+def test_target_suggest_explicit_pack_passed(
+    broker: BrokerCore, mock_run: MagicMock
+) -> None:
+    mock_run.return_value = _completed(stdout=_TARGETS_JSON)
+    broker.target_suggest("stm32g4", pack="/packs/stm32g4")
+    cmd = mock_run.call_args[0][0]
+    assert "--pack" in cmd
+    assert "/packs/stm32g4" in cmd
+
+
+# ── default_pack fallback ─────────────────────────────────────────────────────
+
+def test_target_suggest_uses_default_pack(
+    mock_run: MagicMock, mock_popen: MagicMock, tmp_path: Path
+) -> None:
+    config = BrokerConfig(
+        log_dir=str(tmp_path / "logs"), default_pack="/default/pack"
+    )
+    b = BrokerCore(
+        config=config, _subprocess_run=mock_run, _subprocess_popen=mock_popen
+    )
+    mock_run.return_value = _completed(stdout=_TARGETS_JSON)
+    b.target_suggest("stm32g4")
+    cmd = mock_run.call_args[0][0]
+    assert "--pack" in cmd
+    assert "/default/pack" in cmd
+
+
+def test_target_suggest_explicit_pack_overrides_default(
+    mock_run: MagicMock, mock_popen: MagicMock, tmp_path: Path
+) -> None:
+    config = BrokerConfig(
+        log_dir=str(tmp_path / "logs"), default_pack="/default/pack"
+    )
+    b = BrokerCore(
+        config=config, _subprocess_run=mock_run, _subprocess_popen=mock_popen
+    )
+    mock_run.return_value = _completed(stdout=_TARGETS_JSON)
+    b.target_suggest("stm32g4", pack="/explicit/pack")
+    cmd = mock_run.call_args[0][0]
+    assert "/explicit/pack" in cmd
+    assert "/default/pack" not in cmd
+
+
+def test_session_start_uses_default_pack(
+    mock_run: MagicMock, mock_popen: MagicMock,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config = BrokerConfig(
+        log_dir=str(tmp_path / "logs"), default_pack="/default/pack"
+    )
+    b = BrokerCore(
+        config=config, _subprocess_run=mock_run, _subprocess_popen=mock_popen
+    )
+    monkeypatch.setattr(session_module.os, "getpgid", lambda pid: pid)
+    monkeypatch.setattr(b._sessions, "_tcp_ready", lambda *a, **kw: True)
+    b.session_start(target="stm32g474")
+    popen_args = mock_popen.call_args[0][0]
+    assert "--pack" in popen_args
+    assert "/default/pack" in popen_args

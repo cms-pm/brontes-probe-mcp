@@ -71,6 +71,57 @@ ghcr.io/cms-pm/brontes-probe-mcp@sha256:<digest>
 
 Digests are published in [CHANGELOG.md](CHANGELOG.md) for each release.
 
+### First session (Claude Code)
+
+Once the server is registered, paste **Phase 1** into Claude Code to write
+`.mcp.json` and pull the image, then **Phase 2** after the restart to connect.
+
+**Phase 1 — configure** (paste into Claude Code, press Enter):
+
+```
+Add brontes-probe-mcp to .mcp.json in this project, creating it if needed:
+
+{
+  "mcpServers": {
+    "brontes-probe-mcp": {
+      "command": "docker",
+      "args": [
+        "run", "--rm", "-i",
+        "--device=/dev/bus/usb",
+        "-v", "${HOME}/.brontes-probe-mcp:/run/brontes-probe-mcp",
+        "-v", "${HOME}/.brontes-probe-mcp/packs:/packs",
+        "-e", "PROBE_BROKER_TRANSPORTS=stdio,socket",
+        "-e", "CMSIS_PACK_ROOT=/packs",
+        "ghcr.io/cms-pm/brontes-probe-mcp@sha256:77e58b86015ddf0b36fba47d267669ed7493ea5ff6794dbe80628fa4dce13ae7"
+      ]
+    }
+  }
+}
+
+Then run this shell command to pre-fetch the image:
+docker pull ghcr.io/cms-pm/brontes-probe-mcp@sha256:77e58b86015ddf0b36fba47d267669ed7493ea5ff6794dbe80628fa4dce13ae7
+
+Then tell me to restart Claude Code to load the new server.
+```
+
+**Restart** Claude Code (or run `/mcp` to reload servers).
+
+**Phase 2 — discover and connect** (paste after restart):
+
+```
+Call probe_discover to list attached debug probes. Then call target_suggest
+with my MCU family (e.g. "stm32g4") to find the target string. If
+target_suggest returns no results, call pack_search with the MCU family to
+find the right CMSIS pack name, then call pack_install to install it
+(this may take a minute), then retry target_suggest. Once you have the
+probe UID and target string, call session_start.
+```
+
+`probe_discover`, `target_suggest`, `pack_search`, and `pack_install` do
+not require an active session. Installed packs are written to
+`~/.brontes-probe-mcp/packs/` on the host and persist across container
+restarts — `pack_install` only runs once per MCU family.
+
 ## Client configuration
 
 Configure your AI client to launch the container via the MCP stdio transport.
@@ -190,6 +241,7 @@ All configuration is via `PROBE_BROKER_*` environment variables:
 | `PROBE_BROKER_TCP_PORT` | `7172` | TCP port |
 | `PROBE_BROKER_LANES` | `swd,itm_swo` | Active probe lanes |
 | `PROBE_BROKER_BACKEND` | `pyocd` | Debug backend (`pyocd` or `openocd`) |
+| `PROBE_BROKER_DEFAULT_PACK` | _(none)_ | Default CMSIS pack path — used by `target_suggest` and `session_start` when no `pack=` argument is supplied |
 | `PROBE_BROKER_DIGEST_CHECK` | `enforce` | Image digest verification (`enforce`, `warn`, `skip`) |
 
 ## Flash memory snapshot (`probe_blackbox_export`)
