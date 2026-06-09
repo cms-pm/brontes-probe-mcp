@@ -9,6 +9,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 *(no changes yet)*
 
+## [0.2.0] - 2026-06-09
+
+### Added
+
+**pip install deployment path**
+
+- `pip install brontes-probe-mcp` installs a fully functional native server;
+  no Docker required. Entry point: `brontes-probe-mcp-cli serve`.
+- `brontes-probe-mcp-cli probe-agent` subcommand manages the host-side pyocd
+  gdbserver daemon: `start`, `stop`, `status`.
+  - `probe-agent start` auto-detects probe and target when exactly one probe
+    is connected with a deterministic target; `--target`, `--probe-uid`,
+    `--port`, `--frequency-hz`, `--pack` allow fine-grained control.
+  - State written to `~/.brontes-probe-mcp/agent.json`; persists across MCP
+    server restarts.
+- `PROBE_BROKER_AGENT_STATE_DIR` config variable (default `~/.brontes-probe-mcp`)
+  — controls where `probe-agent start` writes its state and where
+  `session_start` looks for a running agent.
+
+**Transparent probe-agent auto-discovery in `session_start`**
+
+- If `~/.brontes-probe-mcp/agent.json` exists and the recorded GDB port is
+  reachable, `session_start` connects to the running agent instead of
+  spawning a new pyocd process — even on loopback. Fully backwards-compatible:
+  no state file → original spawn-on-demand behavior.
+- Enables the macOS / Docker Desktop split: host runs `probe-agent`, container
+  connects via volume-mounted state file without `--device` pass-through.
+
+**PyPI automated publishing**
+
+- `.github/workflows/publish.yml` — builds wheel + sdist and publishes to
+  PyPI on `v*` tags via OIDC trusted publishing (no stored credentials).
+  Runs independently of `release.yml` so each can be retried.
+
+### Changed
+
+- `PROBE_BROKER_SOCKET_PATH` default changed from `/run/brontes-probe-mcp/probe.sock`
+  (Docker-centric) to `~/.brontes-probe-mcp/probe.sock`. Dockerfile sets the
+  env var explicitly so container behavior is unchanged.
+- `pyocd` version constraint relaxed from `>=0.36,<0.37` to `>=0.36`, allowing
+  pip install users to use newer pyocd releases.
+- `SessionManager.start/stop/status` accept a `profile` keyword so the
+  probe-agent CLI writes to `agent.json` while the MCP server uses `default.json`.
+
 ## [0.1.0] - 2026-06-04
 
 First operational release. The typed skeleton from `0.0.0` is replaced by a
@@ -114,6 +158,7 @@ PyPI namespace reservation (`Development Status :: 1 - Planning`). No
 functional wheel. Typed `BrokerCore` surface and repo skeleton
 (`pyproject.toml`, CI matrix, governance files).
 
-[Unreleased]: https://github.com/cms-pm/brontes-probe-mcp/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/cms-pm/brontes-probe-mcp/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/cms-pm/brontes-probe-mcp/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/cms-pm/brontes-probe-mcp/releases/tag/v0.1.0
 [0.0.0]: https://github.com/cms-pm/brontes-probe-mcp/releases/tag/v0.0.0
