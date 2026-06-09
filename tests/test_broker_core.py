@@ -348,6 +348,30 @@ def test_local_spawn_still_calls_popen(
     mock_popen.assert_called_once()
 
 
+def test_external_agent_status_probes_tcp_not_pid(
+    mock_run: MagicMock, mock_popen: MagicMock,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """session_status() for an external agent must use TCP probe, not os.kill."""
+    config = BrokerConfig(
+        log_dir=str(tmp_path / "logs"),
+        gdb_host="host.docker.internal",
+    )
+    b = BrokerCore(
+        config=config, _subprocess_run=mock_run, _subprocess_popen=mock_popen
+    )
+    monkeypatch.setattr(b._sessions, "_tcp_ready", lambda *a, **kw: True)
+    b.session_start(target="stm32g474")
+
+    kill_calls: list[object] = []
+    monkeypatch.setattr(session_module.os, "kill", lambda *a: kill_calls.append(a))
+    monkeypatch.setattr(b._sessions, "_probe_tcp", lambda *a, **kw: True)
+
+    status = b.session_status()
+    assert status.state == "healthy"
+    assert kill_calls == [], "_derive_state must not call os.kill for external agent"
+
+
 # ── Audit log ─────────────────────────────────────────────────────────────────
 
 def test_recent_lines_after_halt(broker_with_session: BrokerCore) -> None:

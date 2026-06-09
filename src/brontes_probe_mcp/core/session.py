@@ -205,7 +205,7 @@ class SessionManager:
         # means pyocd gdbserver is running on another host (e.g. the Docker host via
         # host.docker.internal). Skip local pyocd spawn; just verify connectivity.
         # _derive_state() and _stop_meta() both handle absent pid gracefully.
-        external_agent = gdb_host != "127.0.0.1"
+        external_agent = gdb_host not in ("127.0.0.1", "localhost", "::1")
 
         with _OperationLock(self._lock_path()):
             # Single-session: implicitly replace any active session
@@ -284,12 +284,13 @@ class SessionManager:
                         target=target,
                     )
 
-                # Brief pause outside the lock: pyocd briefly closes its listen
-                # socket while processing the probe connection from _tcp_ready
-                # before re-entering accept(). An immediate status() call would
-                # race against that window and return "unhealthy".
-                # Not needed for external agent mode — the agent is already stable.
-                time.sleep(0.5)
+        # Brief pause after releasing the lock: pyocd briefly closes its listen
+        # socket while processing the probe connection from _tcp_ready before
+        # re-entering accept(). An immediate status() call would race against
+        # that window and return "unhealthy". External agent is already stable —
+        # no pause needed there.
+        if not external_agent:
+            time.sleep(0.5)
 
         return SessionStatus(
             protocol_version=_PROTOCOL_VERSION,

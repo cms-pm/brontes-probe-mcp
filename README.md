@@ -76,7 +76,7 @@ pyocd gdbserver --persist --target <your-target> --port 3333
 pyocd internally. `session_stop` removes the Brontes session record but does
 not terminate the agent — it persists for reuse.
 
-**Option C — TCP loopback (Docker Desktop / macOS, legacy)**
+**Option C — TCP loopback (no probe agent required)**
 
 ```bash
 docker run -d --name brontes-probe-mcp \
