@@ -1,3 +1,6 @@
+# Dev-environment lockfile — generated from local .venv via pip freeze.
+# pyocd version here (0.36.0) may differ from the container image; the
+# container installs from pyproject.toml and resolves its own version.
 annotated-types==0.7.0
 anyio==4.13.0
 appdirs==1.4.4

@@ -105,3 +105,8 @@ class PackInstallResult(BaseModel):
     pack: str = ""
     installed: bool = False
     output: str = ""
+
+
+class PackUpdateResult(BaseModel):
+    ok: bool = False
+    output: str = ""

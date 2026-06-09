@@ -24,6 +24,7 @@ from brontes_probe_mcp.core.models import (
     MemReadResult,
     PackInstallResult,
     PackSearchResult,
+    PackUpdateResult,
     ProbeDiscoverResult,
     ProbeInfo,
     ProbeState,
@@ -167,6 +168,9 @@ class BrokerCore:
         return ProbeState(halted=True, pc=pc)
 
     def resume(self, disconnect_gdb: bool = True) -> ProbeState:
+        # disconnect_gdb is accepted for API compatibility; batch GDB always
+        # disconnects after the command sequence completes, so the parameter
+        # has no additional effect in the current implementation.
         self._require_session()
         # "monitor resume" sends a pyocd qRcmd packet that resumes the target
         # and returns immediately — avoids the blocking vCont;c that GDB's
@@ -225,8 +229,8 @@ class BrokerCore:
         """
         self._require_session()
         snapshot_at = datetime.now(tz=UTC)
-        size = end_addr - start_addr
-        words = max(1, (size + 3) // 4)
+        range_size = end_addr - start_addr
+        words = max(1, (range_size + 3) // 4)
         # Use x/Nwx instead of "dump binary memory": GDB 8.3 (PlatformIO toolchain)
         # crashes with SIGSEGV when running dump binary memory without an ELF loaded.
         output = self._run_gdb([f"x/{words}wx 0x{start_addr:08x}"])
@@ -234,15 +238,15 @@ class BrokerCore:
         raw = b""
         for w in hex_words:
             raw += int(w, 16).to_bytes(4, byteorder="little")
-        raw = raw[:size]
+        raw = raw[:range_size]
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(raw)
-        size = out.stat().st_size if out.exists() else 0
+        bytes_written = out.stat().st_size if out.exists() else 0
         self._log_op(
-            "blackbox_export", payload={"out": str(out), "bytes_written": size}
+            "blackbox_export", payload={"out": str(out), "bytes_written": bytes_written}
         )
         return BlackboxExportResult(
-            out=out, bytes_written=size, snapshot_at=snapshot_at
+            out=out, bytes_written=bytes_written, snapshot_at=snapshot_at
         )
 
     def itm_stream_start(
@@ -323,8 +327,6 @@ class BrokerCore:
         query: str,
         pack: str | None = None,
     ) -> TargetSuggestResult:
-        if pack is None:
-            pack = self._config.default_pack
         """Search known pyocd targets matching query (case-insensitive substring).
 
         Matches against target name, part number, part families, and vendor.
@@ -332,6 +334,8 @@ class BrokerCore:
         locally-mounted CMSIS pack that may not be in the global pack cache.
         Does not require an active session.
         """
+        if pack is None:
+            pack = self._config.default_pack
         args = [self._config.pyocd_bin, "json", "--targets"]
         if pack is not None:
             args.extend(["--pack", pack])
@@ -392,6 +396,8 @@ class BrokerCore:
         Run pack_search first to confirm the exact pack name. Installation
         writes to CMSIS_PACK_ROOT (mounted persistent volume in container).
         Does not require an active session. May take 30–120 s on first install.
+        No subprocess timeout is set intentionally — pack downloads vary widely
+        in size and network conditions.
         """
         result: Any = self._subprocess_run(
             [self._config.pyocd_bin, "pack", "install", pack],
@@ -404,7 +410,7 @@ class BrokerCore:
         self._log_op("pack_install", payload={"pack": pack, "ok": ok})
         return PackInstallResult(pack=pack, installed=ok, output=output)
 
-    def pack_update(self) -> PackSearchResult:
+    def pack_update(self) -> PackUpdateResult:
         """Refresh the CMSIS pack index from the online registry.
 
         Call this once after container setup, or when pack_search returns no
@@ -416,9 +422,10 @@ class BrokerCore:
             text=True,
             check=False,
         )
+        ok = result.returncode == 0
         output = (result.stdout or result.stderr or "").strip()
-        self._log_op("pack_update", payload={"ok": result.returncode == 0})
-        return PackSearchResult(query="update", output=output)
+        self._log_op("pack_update", payload={"ok": ok})
+        return PackUpdateResult(ok=ok, output=output)
 
     def session_start(self, **profile_kwargs: object) -> SessionStatus:
         result = self._sessions.start(**profile_kwargs)

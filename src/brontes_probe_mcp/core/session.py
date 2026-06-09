@@ -259,11 +259,13 @@ class SessionManager:
                     state="unhealthy",
                     target=target,
                 )
-            # Brief pause: pyocd may briefly close its listen socket while
-            # processing the probe connection from _tcp_ready before
-            # re-entering accept(). Without this, an immediate status() call
-            # races against that window and returns "unhealthy".
-            time.sleep(0.5)
+
+        # Brief pause outside the lock: pyocd briefly closes its listen socket
+        # while processing the probe connection from _tcp_ready before
+        # re-entering accept(). An immediate status() call would race against
+        # that window and return "unhealthy". Holding the lock during the sleep
+        # is unnecessary — no meta mutation happens here.
+        time.sleep(0.5)
 
         return SessionStatus(
             protocol_version=_PROTOCOL_VERSION,
