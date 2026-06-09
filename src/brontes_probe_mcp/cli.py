@@ -11,22 +11,20 @@ from brontes_probe_mcp import __version__
 from brontes_probe_mcp.core.config import BrokerConfig
 
 
-def _agent_discover_target(pyocd_bin: str) -> str | None:
-    """Return target string from the sole connected probe, or None if ambiguous."""
+def _probe_boards(pyocd_bin: str) -> list[dict[str, object]]:
+    """Return the boards list from `pyocd json --probes`, or [] on any error."""
     try:
         result = subprocess.run(
             [pyocd_bin, "json", "--probes"],
             capture_output=True, text=True, check=False, timeout=10,
         )
         if result.returncode != 0:
-            return None
+            return []
         data = json.loads(result.stdout)
         boards = data.get("boards", [])
-        if len(boards) == 1:
-            return str(boards[0]["target"]) if boards[0].get("target") else None
-        return None
-    except (subprocess.TimeoutExpired, json.JSONDecodeError, KeyError, OSError):
-        return None
+        return boards if isinstance(boards, list) else []
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError):
+        return []
 
 
 def _cmd_probe_agent_start(args: argparse.Namespace) -> None:
@@ -37,16 +35,11 @@ def _cmd_probe_agent_start(args: argparse.Namespace) -> None:
 
     target = args.target
     if not target:
-        target = _agent_discover_target(config.pyocd_bin)
-        if not target:
-            probes_result = subprocess.run(
-                [config.pyocd_bin, "json", "--probes"],
-                capture_output=True, text=True, check=False,
-            )
-            try:
-                count = len(json.loads(probes_result.stdout).get("boards", []))
-            except (json.JSONDecodeError, AttributeError):
-                count = 0
+        boards = _probe_boards(config.pyocd_bin)
+        count = len(boards)
+        if count == 1 and boards[0].get("target"):
+            target = str(boards[0]["target"])
+        else:
             if count == 0:
                 print("No debug probes found. Check USB connection.", file=sys.stderr)
             elif count == 1:
@@ -151,7 +144,11 @@ def main() -> None:
     pa_start.add_argument("--pack", metavar="PATH", default=None)
     pa_start.add_argument(
         "--state-dir", default=_default_state_dir, metavar="DIR",
-        help="Directory for agent state file (default: ~/.brontes-probe-mcp)",
+        help=(
+            "Directory for agent state file (default: ~/.brontes-probe-mcp). "
+            "If changed, set PROBE_BROKER_AGENT_STATE_DIR to the same path "
+            "so the MCP server can discover the running agent."
+        ),
     )
 
     pa_stop = pa_sub.add_parser("stop", help="Stop probe agent")

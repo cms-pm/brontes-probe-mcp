@@ -315,7 +315,7 @@ All configuration is via `PROBE_BROKER_*` environment variables:
 | `PROBE_BROKER_BACKEND` | `pyocd` | Debug backend (`pyocd` or `openocd`) |
 | `PROBE_BROKER_GDB_HOST` | `127.0.0.1` | GDB server host — set to `host.docker.internal` to connect to an external probe agent instead of spawning pyocd locally |
 | `PROBE_BROKER_DEFAULT_PACK` | _(none)_ | Default CMSIS pack path — used by `target_suggest` and `session_start` when no `pack=` argument is supplied |
-| `PROBE_BROKER_AGENT_STATE_DIR` | `~/.brontes-probe-mcp` | Directory where `probe-agent start` writes its state file and where `session_start` looks for a running agent |
+| `PROBE_BROKER_AGENT_STATE_DIR` | `~/.brontes-probe-mcp` | Directory where `probe-agent start` writes its state file and where `session_start` looks for a running agent. If `probe-agent start --state-dir` is set to a non-default path, this variable must be set to match |
 | `PROBE_BROKER_DIGEST_CHECK` | `enforce` | Image digest verification (`enforce`, `warn`, `skip`) |
 
 ## Flash memory snapshot (`probe_blackbox_export`)

@@ -91,3 +91,172 @@ def test_session_unlock_no_lock(capsys: pytest.CaptureFixture[str]) -> None:
     main()
     captured = capsys.readouterr()
     assert "No lock" in captured.out
+
+
+# ── probe-agent subcommand ────────────────────────────────────────────────────
+
+_MGR = "brontes_probe_mcp.core.session.SessionManager"
+_BOARDS = "brontes_probe_mcp.cli._probe_boards"
+
+
+def test_probe_agent_start_forwards_agent_profile(
+    capsys: pytest.CaptureFixture[str], tmp_path: pytest.TempPathFactory
+) -> None:
+    """start uses profile='agent' so state lands in agent.json, not default.json."""
+    import unittest.mock as _mock
+
+    from brontes_probe_mcp.core.models import SessionStatus
+
+    healthy = SessionStatus(protocol_version="1.1", state="healthy", target="stm32g474")
+    with _mock.patch(_MGR) as MockMgr:
+        instance = MockMgr.return_value
+        instance.start.return_value = healthy
+        sys.argv = [
+            "brontes-probe-mcp-cli", "probe-agent", "start",
+            "--target", "stm32g474", "--state-dir", str(tmp_path),
+        ]
+        main()
+
+    call_kwargs = instance.start.call_args
+    assert call_kwargs is not None
+    assert call_kwargs.kwargs.get("profile") == "agent"
+    assert call_kwargs.kwargs.get("target") == "stm32g474"
+
+
+def test_probe_agent_start_auto_detect_single_probe(
+    capsys: pytest.CaptureFixture[str], tmp_path: pytest.TempPathFactory
+) -> None:
+    """Single probe with known target: auto-detected, no --target needed."""
+    import unittest.mock as _mock
+
+    from brontes_probe_mcp.core.models import SessionStatus
+
+    boards = [{"unique_id": "abc123", "target": "stm32g474"}]
+    healthy = SessionStatus(protocol_version="1.1", state="healthy", target="stm32g474")
+
+    with (
+        _mock.patch(_BOARDS, return_value=boards) as mock_boards,
+        _mock.patch(_MGR) as MockMgr,
+    ):
+        instance = MockMgr.return_value
+        instance.start.return_value = healthy
+        sys.argv = [
+            "brontes-probe-mcp-cli", "probe-agent", "start",
+            "--state-dir", str(tmp_path),
+        ]
+        main()
+
+    mock_boards.assert_called_once()
+    assert instance.start.call_args.kwargs.get("target") == "stm32g474"
+
+
+def test_probe_agent_start_no_probes_exits_nonzero(
+    capsys: pytest.CaptureFixture[str], tmp_path: pytest.TempPathFactory
+) -> None:
+    """No probes found → exit 1, informative message, single _probe_boards call."""
+    import unittest.mock as _mock
+
+    with _mock.patch(_BOARDS, return_value=[]) as mock_boards:
+        sys.argv = [
+            "brontes-probe-mcp-cli", "probe-agent", "start",
+            "--state-dir", str(tmp_path),
+        ]
+        with pytest.raises(SystemExit) as exc:
+            main()
+
+    assert exc.value.code == 1
+    mock_boards.assert_called_once()
+    captured = capsys.readouterr()
+    assert "No debug probes" in captured.err
+
+
+def test_probe_agent_start_ambiguous_probes_exits_nonzero(
+    capsys: pytest.CaptureFixture[str], tmp_path: pytest.TempPathFactory
+) -> None:
+    """Multiple probes → exit 1, single _probe_boards call (no double-invocation)."""
+    import unittest.mock as _mock
+
+    boards = [
+        {"unique_id": "aaa", "target": "stm32g474"},
+        {"unique_id": "bbb", "target": "stm32l4"},
+    ]
+    with _mock.patch(_BOARDS, return_value=boards) as mock_boards:
+        sys.argv = [
+            "brontes-probe-mcp-cli", "probe-agent", "start",
+            "--state-dir", str(tmp_path),
+        ]
+        with pytest.raises(SystemExit) as exc:
+            main()
+
+    assert exc.value.code == 1
+    mock_boards.assert_called_once()
+    captured = capsys.readouterr()
+    assert "2 probes" in captured.err
+
+
+def test_probe_agent_stop_forwards_agent_profile(
+    capsys: pytest.CaptureFixture[str], tmp_path: pytest.TempPathFactory
+) -> None:
+    """stop uses profile='agent'."""
+    import unittest.mock as _mock
+
+    from brontes_probe_mcp.core.models import SessionStatus
+
+    stopped = SessionStatus(protocol_version="1.1", state="stopped")
+    with _mock.patch(_MGR) as MockMgr:
+        instance = MockMgr.return_value
+        instance.stop.return_value = stopped
+        sys.argv = [
+            "brontes-probe-mcp-cli", "probe-agent", "stop",
+            "--state-dir", str(tmp_path),
+        ]
+        main()
+
+    call_kwargs = instance.stop.call_args
+    assert call_kwargs is not None
+    assert call_kwargs.kwargs.get("profile") == "agent"
+
+
+def test_probe_agent_status_healthy_exits_zero(
+    capsys: pytest.CaptureFixture[str], tmp_path: pytest.TempPathFactory
+) -> None:
+    """status healthy → exit 0, JSON output."""
+    import unittest.mock as _mock
+
+    from brontes_probe_mcp.core.models import SessionStatus
+
+    healthy = SessionStatus(protocol_version="1.1", state="healthy", target="stm32g474")
+    with _mock.patch(_MGR) as MockMgr:
+        instance = MockMgr.return_value
+        instance.status.return_value = healthy
+        sys.argv = [
+            "brontes-probe-mcp-cli", "probe-agent", "status",
+            "--state-dir", str(tmp_path),
+        ]
+        main()
+
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+    assert data["state"] == "healthy"
+
+
+def test_probe_agent_status_unhealthy_exits_nonzero(
+    capsys: pytest.CaptureFixture[str], tmp_path: pytest.TempPathFactory
+) -> None:
+    """status unhealthy → exit 1."""
+    import unittest.mock as _mock
+
+    from brontes_probe_mcp.core.models import SessionStatus
+
+    unhealthy = SessionStatus(protocol_version="1.1", state="unhealthy")
+    with _mock.patch(_MGR) as MockMgr:
+        instance = MockMgr.return_value
+        instance.status.return_value = unhealthy
+        sys.argv = [
+            "brontes-probe-mcp-cli", "probe-agent", "status",
+            "--state-dir", str(tmp_path),
+        ]
+        with pytest.raises(SystemExit) as exc:
+            main()
+
+    assert exc.value.code == 1

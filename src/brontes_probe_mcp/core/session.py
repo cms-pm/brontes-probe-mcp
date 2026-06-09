@@ -320,7 +320,7 @@ class SessionManager:
             probe_uid=probe_uid,
         )
 
-    def stop(self, force: bool = False, profile: str = _PROFILE) -> SessionStatus:  # noqa: E501
+    def stop(self, force: bool = False, profile: str = _PROFILE) -> SessionStatus:
         with _OperationLock(self._lock_path()):
             meta = self._read_meta(profile)
             if meta is not None:
