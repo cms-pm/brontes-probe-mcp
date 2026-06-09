@@ -22,6 +22,12 @@ htmlcov/
 CLAUDE.md
 .claude/
 
+# Internal planning / governance — local only, not for public consumers
+docs/planning/
+artifacts/
+.governance/
+.gitmodules
+
 # Astaire knowledge graph — generated artifacts, not source
 .astaire/memory_palace.db
 .astaire/memory_palace.db-*

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import re
 import subprocess
 import threading
@@ -21,9 +22,16 @@ from brontes_probe_mcp.core.models import (
     LaneStatus,
     LogLine,
     MemReadResult,
+    PackInstallResult,
+    PackSearchResult,
+    PackUpdateResult,
+    ProbeDiscoverResult,
+    ProbeInfo,
     ProbeState,
     ProgramResult,
     SessionStatus,
+    TargetInfo,
+    TargetSuggestResult,
 )
 from brontes_probe_mcp.core.session import SessionManager
 
@@ -153,13 +161,21 @@ class BrokerCore:
 
     def halt(self) -> ProbeState:
         self._require_session()
-        self._run_gdb(["monitor halt"])
-        self._log_op("halt", payload={"halted": True})
-        return ProbeState(halted=True)
+        output = self._run_gdb(["monitor halt", "x/1wx $pc"])
+        pc_words = _parse_gdb_hex_dump(output)
+        pc: int | None = int(pc_words[0], 16) if pc_words else None
+        self._log_op("halt", payload={"halted": True, "pc": pc})
+        return ProbeState(halted=True, pc=pc)
 
     def resume(self, disconnect_gdb: bool = True) -> ProbeState:
+        # disconnect_gdb is accepted for API compatibility; batch GDB always
+        # disconnects after the command sequence completes, so the parameter
+        # has no additional effect in the current implementation.
         self._require_session()
-        self._run_gdb(["continue"])
+        # "monitor resume" sends a pyocd qRcmd packet that resumes the target
+        # and returns immediately — avoids the blocking vCont;c that GDB's
+        # "continue" command issues in --batch mode.
+        self._run_gdb(["monitor resume"])
         self._log_op("resume", payload={"resumed": True})
         return ProbeState(resumed=True, halted=False)
 
@@ -213,15 +229,24 @@ class BrokerCore:
         """
         self._require_session()
         snapshot_at = datetime.now(tz=UTC)
-        self._run_gdb(
-            [f'dump binary memory "{out}" 0x{start_addr:08x} 0x{end_addr:08x}']
-        )
-        size = out.stat().st_size if out.exists() else 0
+        range_size = end_addr - start_addr
+        words = max(1, (range_size + 3) // 4)
+        # Use x/Nwx instead of "dump binary memory": GDB 8.3 (PlatformIO toolchain)
+        # crashes with SIGSEGV when running dump binary memory without an ELF loaded.
+        output = self._run_gdb([f"x/{words}wx 0x{start_addr:08x}"])
+        hex_words = _parse_gdb_hex_dump(output)
+        raw = b""
+        for w in hex_words:
+            raw += int(w, 16).to_bytes(4, byteorder="little")
+        raw = raw[:range_size]
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(raw)
+        bytes_written = out.stat().st_size if out.exists() else 0
         self._log_op(
-            "blackbox_export", payload={"out": str(out), "bytes_written": size}
+            "blackbox_export", payload={"out": str(out), "bytes_written": bytes_written}
         )
         return BlackboxExportResult(
-            out=out, bytes_written=size, snapshot_at=snapshot_at
+            out=out, bytes_written=bytes_written, snapshot_at=snapshot_at
         )
 
     def itm_stream_start(
@@ -260,6 +285,147 @@ class BrokerCore:
         with self._audit_lock:
             lines = [e for e in self._audit if e.seq >= since_seq]
         return lines[:limit]
+
+    def probe_discover(self) -> ProbeDiscoverResult:
+        """List all connected debug probes via pyocd json --probes.
+
+        Does not require an active session. The returned uid values can be
+        passed directly to session_start(probe_uid=...).
+        """
+        result: Any = self._subprocess_run(
+            [self._config.pyocd_bin, "json", "--probes"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()
+            raise RuntimeError(f"pyocd json --probes failed: {detail}")
+        data: Any = json.loads(result.stdout)
+        probes = [
+            ProbeInfo(
+                uid=str(b.get("unique_id", "")),
+                description=str(b.get("info", "")),
+                vendor_name=str(b.get("vendor_name", "")),
+                product_name=str(b.get("product_name", "")),
+                board_name=(
+                    str(b["board_name"])
+                    if b.get("board_name") and b["board_name"] != "Generic"
+                    else None
+                ),
+                board_vendor=(
+                    str(b["board_vendor"]) if b.get("board_vendor") else None
+                ),
+            )
+            for b in data.get("boards", [])
+        ]
+        self._log_op("probe_discover", payload={"count": len(probes)})
+        return ProbeDiscoverResult(probes=probes)
+
+    def target_suggest(
+        self,
+        query: str,
+        pack: str | None = None,
+    ) -> TargetSuggestResult:
+        """Search known pyocd targets matching query (case-insensitive substring).
+
+        Matches against target name, part number, part families, and vendor.
+        Pass pack= (same path as session_start) to include targets from a
+        locally-mounted CMSIS pack that may not be in the global pack cache.
+        Does not require an active session.
+        """
+        if pack is None:
+            pack = self._config.default_pack
+        args = [self._config.pyocd_bin, "json", "--targets"]
+        if pack is not None:
+            args.extend(["--pack", pack])
+        result: Any = self._subprocess_run(
+            args, capture_output=True, text=True, check=False
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()
+            raise RuntimeError(f"pyocd json --targets failed: {detail}")
+        data: Any = json.loads(result.stdout)
+        q = query.lower()
+        matches: list[TargetInfo] = []
+        for t in data.get("targets", []):
+            name = str(t.get("name", ""))
+            part_number = str(t.get("part_number", ""))
+            families: list[str] = [str(f) for f in t.get("part_families", [])]
+            vendor = str(t.get("vendor", ""))
+            if (
+                q in name.lower()
+                or q in part_number.lower()
+                or any(q in f.lower() for f in families)
+                or q in vendor.lower()
+            ):
+                matches.append(
+                    TargetInfo(
+                        name=name,
+                        vendor=vendor,
+                        part_number=part_number,
+                        part_families=families,
+                        source=str(t.get("source", "")),
+                    )
+                )
+        self._log_op(
+            "target_suggest", payload={"query": query, "count": len(matches)}
+        )
+        return TargetSuggestResult(targets=matches, query=query, pack=pack)
+
+    def pack_search(self, query: str) -> PackSearchResult:
+        """Search the CMSIS pack index for packs matching query.
+
+        Returns the raw pyocd pack find output so the caller can read pack
+        names and versions. Call pack_update first if the index is stale.
+        Does not require an active session.
+        """
+        result: Any = self._subprocess_run(
+            [self._config.pyocd_bin, "pack", "find", query],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        output = (result.stdout or result.stderr or "").strip()
+        self._log_op("pack_search", payload={"query": query})
+        return PackSearchResult(query=query, output=output)
+
+    def pack_install(self, pack: str) -> PackInstallResult:
+        """Install a CMSIS pack by name into the pack cache.
+
+        Run pack_search first to confirm the exact pack name. Installation
+        writes to CMSIS_PACK_ROOT (mounted persistent volume in container).
+        Does not require an active session. May take 30–120 s on first install.
+        No subprocess timeout is set intentionally — pack downloads vary widely
+        in size and network conditions.
+        """
+        result: Any = self._subprocess_run(
+            [self._config.pyocd_bin, "pack", "install", pack],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        ok = result.returncode == 0
+        output = (result.stdout or result.stderr or "").strip()
+        self._log_op("pack_install", payload={"pack": pack, "ok": ok})
+        return PackInstallResult(pack=pack, installed=ok, output=output)
+
+    def pack_update(self) -> PackUpdateResult:
+        """Refresh the CMSIS pack index from the online registry.
+
+        Call this once after container setup, or when pack_search returns no
+        results for a known MCU family. Does not require an active session.
+        """
+        result: Any = self._subprocess_run(
+            [self._config.pyocd_bin, "pack", "update"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        ok = result.returncode == 0
+        output = (result.stdout or result.stderr or "").strip()
+        self._log_op("pack_update", payload={"ok": ok})
+        return PackUpdateResult(ok=ok, output=output)
 
     def session_start(self, **profile_kwargs: object) -> SessionStatus:
         result = self._sessions.start(**profile_kwargs)

@@ -51,6 +51,10 @@ def dispatch(broker: BrokerCore, method: str, kwargs: dict[str, Any]) -> Any:
         result = fn(**kwargs)
     except SessionRequiredError as exc:
         return json.loads(error_response("session_required", str(exc)))
+    except (ValueError, TypeError) as exc:
+        return json.loads(error_response("invalid_kwargs", str(exc)))
+    except RuntimeError as exc:
+        return json.loads(error_response("broker_internal_error", str(exc)))
 
     if resolved == "recent_lines":
         lines = result if isinstance(result, list) else []

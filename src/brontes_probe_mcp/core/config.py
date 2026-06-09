@@ -58,6 +58,7 @@ class BrokerConfig(BaseSettings):
     backend: str = "pyocd"
     gdb_port: int = 3333
     log_dir: str = "/tmp/brontes-probe-mcp-logs/"
+    default_pack: str | None = None
 
     # ITM/SWO
     enable_swv: bool = False

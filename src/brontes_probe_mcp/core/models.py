@@ -67,3 +67,46 @@ class SessionStatus(BaseModel):
     state: Literal["stopped", "healthy", "unhealthy", "stale", "unknown"] = "unknown"
     target: str | None = None
     probe_uid: str | None = None
+
+
+class ProbeInfo(BaseModel):
+    uid: str = ""
+    description: str = ""
+    vendor_name: str = ""
+    product_name: str = ""
+    board_name: str | None = None
+    board_vendor: str | None = None
+
+
+class ProbeDiscoverResult(BaseModel):
+    probes: list[ProbeInfo] = []
+
+
+class TargetInfo(BaseModel):
+    name: str = ""
+    vendor: str = ""
+    part_number: str = ""
+    part_families: list[str] = []
+    source: str = ""
+
+
+class TargetSuggestResult(BaseModel):
+    targets: list[TargetInfo] = []
+    query: str = ""
+    pack: str | None = None
+
+
+class PackSearchResult(BaseModel):
+    query: str = ""
+    output: str = ""
+
+
+class PackInstallResult(BaseModel):
+    pack: str = ""
+    installed: bool = False
+    output: str = ""
+
+
+class PackUpdateResult(BaseModel):
+    ok: bool = False
+    output: str = ""
