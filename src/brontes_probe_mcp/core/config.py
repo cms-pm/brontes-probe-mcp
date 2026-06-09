@@ -56,6 +56,7 @@ class BrokerConfig(BaseSettings):
     pyocd_bin: str = "pyocd"
     gdb_bin: str = "arm-none-eabi-gdb"
     backend: str = "pyocd"
+    gdb_host: str = "127.0.0.1"
     gdb_port: int = 3333
     log_dir: str = "/tmp/brontes-probe-mcp-logs/"
     default_pack: str | None = None

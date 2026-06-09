@@ -43,7 +43,40 @@ docker run -d --name brontes-probe-mcp \
   ghcr.io/cms-pm/brontes-probe-mcp:0.1.0
 ```
 
-**Option B — TCP loopback (Docker Desktop / macOS)**
+**Option B — Probe agent split (macOS / Docker Desktop)**
+
+Docker Desktop on macOS cannot pass USB devices into containers. Run pyocd
+natively as a probe agent; the container connects to it over TCP:
+
+```bash
+# Terminal 1 — probe agent (runs on the macOS host, owns the USB device)
+pyocd gdbserver --persist --target <your-target> --port 3333
+
+# .mcp.json — container connects to the host agent, no --device needed
+```
+
+```json
+{
+  "brontes-probe-mcp": {
+    "command": "docker",
+    "args": [
+      "run", "--rm", "-i",
+      "-v", "${HOME}/.brontes-probe-mcp:/run/brontes-probe-mcp",
+      "-v", "${HOME}/.brontes-probe-mcp/packs:/packs",
+      "-e", "PROBE_BROKER_TRANSPORTS=stdio,socket",
+      "-e", "CMSIS_PACK_ROOT=/packs",
+      "-e", "PROBE_BROKER_GDB_HOST=host.docker.internal",
+      "ghcr.io/cms-pm/brontes-probe-mcp@sha256:77e58b86015ddf0b36fba47d267669ed7493ea5ff6794dbe80628fa4dce13ae7"
+    ]
+  }
+}
+```
+
+`session_start` will connect to the running probe agent rather than spawning
+pyocd internally. `session_stop` removes the Brontes session record but does
+not terminate the agent — it persists for reuse.
+
+**Option C — TCP loopback (Docker Desktop / macOS, legacy)**
 
 ```bash
 docker run -d --name brontes-probe-mcp \
@@ -54,7 +87,7 @@ docker run -d --name brontes-probe-mcp \
   ghcr.io/cms-pm/brontes-probe-mcp:0.1.0
 ```
 
-**Option C — Docker Compose (socket, auto-restart)**
+**Option D — Docker Compose (socket, auto-restart)**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/cms-pm/brontes-probe-mcp/main/docker-compose.yml \
@@ -241,6 +274,7 @@ All configuration is via `PROBE_BROKER_*` environment variables:
 | `PROBE_BROKER_TCP_PORT` | `7172` | TCP port |
 | `PROBE_BROKER_LANES` | `swd,itm_swo` | Active probe lanes |
 | `PROBE_BROKER_BACKEND` | `pyocd` | Debug backend (`pyocd` or `openocd`) |
+| `PROBE_BROKER_GDB_HOST` | `127.0.0.1` | GDB server host — set to `host.docker.internal` to connect to an external probe agent instead of spawning pyocd locally |
 | `PROBE_BROKER_DEFAULT_PACK` | _(none)_ | Default CMSIS pack path — used by `target_suggest` and `session_start` when no `pack=` argument is supplied |
 | `PROBE_BROKER_DIGEST_CHECK` | `enforce` | Image digest verification (`enforce`, `warn`, `skip`) |
 

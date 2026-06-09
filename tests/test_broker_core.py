@@ -284,6 +284,70 @@ def test_session_stop_returns_stopped(
     assert result.state == "stopped"
 
 
+# ── External agent mode ───────────────────────────────────────────────────────
+
+def test_external_agent_skips_pyocd_spawn(
+    mock_run: MagicMock, mock_popen: MagicMock,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    config = BrokerConfig(
+        log_dir=str(tmp_path / "logs"),
+        gdb_host="host.docker.internal",
+    )
+    b = BrokerCore(
+        config=config, _subprocess_run=mock_run, _subprocess_popen=mock_popen
+    )
+    monkeypatch.setattr(b._sessions, "_tcp_ready", lambda *a, **kw: True)
+    result = b.session_start(target="stm32g474")
+    assert result.state == "healthy"
+    mock_popen.assert_not_called()
+
+
+def test_external_agent_unhealthy_when_unreachable(
+    mock_run: MagicMock, mock_popen: MagicMock,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    config = BrokerConfig(
+        log_dir=str(tmp_path / "logs"),
+        gdb_host="host.docker.internal",
+    )
+    b = BrokerCore(
+        config=config, _subprocess_run=mock_run, _subprocess_popen=mock_popen
+    )
+    monkeypatch.setattr(b._sessions, "_tcp_ready", lambda *a, **kw: False)
+    result = b.session_start(target="stm32g474")
+    assert result.state == "unhealthy"
+    mock_popen.assert_not_called()
+
+
+def test_external_agent_stop_does_not_kill_agent(
+    mock_run: MagicMock, mock_popen: MagicMock,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    config = BrokerConfig(
+        log_dir=str(tmp_path / "logs"),
+        gdb_host="host.docker.internal",
+    )
+    b = BrokerCore(
+        config=config, _subprocess_run=mock_run, _subprocess_popen=mock_popen
+    )
+    monkeypatch.setattr(b._sessions, "_tcp_ready", lambda *a, **kw: True)
+    b.session_start(target="stm32g474")
+    kill_calls: list[object] = []
+    monkeypatch.setattr(session_module.os, "kill", lambda *a: kill_calls.append(a))
+    b.session_stop()
+    assert kill_calls == [], "session_stop must not kill the external probe agent"
+
+
+def test_local_spawn_still_calls_popen(
+    broker: BrokerCore, mock_popen: MagicMock, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(session_module.os, "getpgid", lambda pid: pid)
+    monkeypatch.setattr(broker._sessions, "_tcp_ready", lambda *a, **kw: True)
+    broker.session_start(target="stm32g474")
+    mock_popen.assert_called_once()
+
+
 # ── Audit log ─────────────────────────────────────────────────────────────────
 
 def test_recent_lines_after_halt(broker_with_session: BrokerCore) -> None:
