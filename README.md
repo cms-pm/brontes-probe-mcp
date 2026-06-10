@@ -10,28 +10,23 @@ three concurrent transports (stdio MCP, Unix socket, loopback TCP).
 
 ## Quick start
 
-Two deployment paths — pick the one that fits your platform:
+Three steps: configure, start the probe agent (macOS / pip only), connect.
 
-| | |
-|---|---|
-| **Docker** | No Python install required; probe-agent CLI handles macOS USB limitations |
-| **pip install** | No Docker required; works on all platforms |
+---
 
-### Docker on Linux
+### Step 1 — Configure
 
-```bash
-docker run -d --name brontes-probe-mcp \
-  --device=/dev/bus/usb \
-  -v "$HOME/.brontes-probe-mcp:/run/brontes-probe-mcp" \
-  -v "$HOME/.brontes-probe-mcp/packs:/packs" \
-  -e PROBE_BROKER_TRANSPORTS=stdio,socket \
-  -e CMSIS_PACK_ROOT=/packs \
-  ghcr.io/cms-pm/brontes-probe-mcp:0.2.1
+Pick your deployment. Each section below includes a prompt you can paste
+directly into Claude Code to write `.mcp.json` automatically, or add it
+manually if you prefer.
+
+#### Docker on Linux (recommended)
+
+**Paste into Claude Code:**
+
 ```
+Add brontes-probe-mcp to .mcp.json in this project, creating it if needed:
 
-Add to `.mcp.json` in your project root:
-
-```json
 {
   "mcpServers": {
     "brontes-probe-mcp": {
@@ -48,24 +43,29 @@ Add to `.mcp.json` in your project root:
     }
   }
 }
+
+Then pull the image:
+docker pull ghcr.io/cms-pm/brontes-probe-mcp@sha256:TBD
+
+Then tell me to restart Claude Code to load the new server.
 ```
 
-### Docker on macOS (Docker Desktop)
+Replace `sha256:TBD` with the digest from [CHANGELOG.md](CHANGELOG.md).
 
-Docker Desktop cannot pass USB devices into containers. Install the CLI on the
-host to manage the probe, then point the container at it:
+#### Docker on macOS (Docker Desktop)
+
+Docker Desktop cannot pass USB devices into containers. First install the
+host CLI:
 
 ```bash
-# Install once
 pip install brontes-probe-mcp
-
-# Start the probe agent — auto-detects probe and target if unambiguous
-brontes-probe-mcp-cli probe-agent start
 ```
 
-`.mcp.json`:
+**Paste into Claude Code:**
 
-```json
+```
+Add brontes-probe-mcp to .mcp.json in this project, creating it if needed:
+
 {
   "mcpServers": {
     "brontes-probe-mcp": {
@@ -82,27 +82,24 @@ brontes-probe-mcp-cli probe-agent start
     }
   }
 }
+
+Then tell me to restart Claude Code to load the new server.
 ```
 
-`session_start` auto-discovers the running probe agent — no further
-configuration needed. `session_stop` removes the Brontes session but leaves
-the agent running for reuse.
-
-### pip install (no Docker, all platforms)
+#### pip install (no Docker, all platforms)
 
 Requires `arm-none-eabi-gdb` on `PATH` (install via your OS package manager
 or [ARM toolchain download](https://developer.arm.com/downloads/-/arm-gnu-toolchain-downloads)).
 
 ```bash
 pip install brontes-probe-mcp
-
-# Start the probe agent — auto-detects probe and target if unambiguous
-brontes-probe-mcp-cli probe-agent start
 ```
 
-`.mcp.json`:
+**Paste into Claude Code:**
 
-```json
+```
+Add brontes-probe-mcp to .mcp.json in this project, creating it if needed:
+
 {
   "mcpServers": {
     "brontes-probe-mcp": {
@@ -111,35 +108,55 @@ brontes-probe-mcp-cli probe-agent start
     }
   }
 }
+
+Then tell me to restart Claude Code to load the new server.
 ```
 
-Target auto-detection works when exactly one probe is connected and pyocd
-recognises the board. If it fails, specify `--target` manually:
+---
+
+### Step 2 — Start the probe agent (macOS and pip only)
+
+> **Docker on Linux users skip this step** — the container manages pyocd
+> internally.
+
+Run this once before each session (keep it running in the background):
 
 ```bash
-brontes-probe-mcp-cli probe-agent start --target stm32g474
+# Auto-detects probe and target if exactly one probe is connected
+brontes-probe-mcp-cli probe-agent start
 ```
 
-### Connect (all options)
+If auto-detection fails (multiple probes, or board not recognised by pyocd):
 
-After adding `.mcp.json`, restart Claude Code (or run `/mcp` to reload
-servers), then paste this into the conversation:
-
-```
-Connect to my debug probe. Call probe_discover to list attached probes.
-Then call target_suggest with my MCU family or part number to find the
-pyocd target string — use any board or chip info returned by probe_discover
-as the query. If target_suggest returns no matches, call pack_update, then
-pack_search to find the right CMSIS pack name, then pack_install (this may
-take a minute), then retry target_suggest. Once you have the target string
-and probe UID, call session_start.
+```bash
+brontes-probe-mcp-cli probe-agent start --target stm32g474 --probe-uid <uid>
 ```
 
-Claude handles the full discovery flow automatically. If you already know
-your target string you can skip straight to:
+`session_start` auto-discovers the running agent — no extra configuration
+needed. `session_stop` removes the Brontes session but leaves the agent
+running for reuse.
+
+---
+
+### Step 3 — Connect
+
+After restarting Claude Code (or running `/mcp` to reload), paste this into
+the conversation:
 
 ```
-Call session_start with target="<your-target>".
+Call probe_discover to list connected debug probes. Use any board or chip
+information from the results to call target_suggest and find the pyocd
+target string. If target_suggest returns no matches, call pack_update to
+refresh the pack index, then pack_search to find the right CMSIS pack name,
+then pack_install (may take a minute), then retry target_suggest. Once you
+have the target string, call session_start — omit probe_uid if only one
+probe is connected, otherwise pass the uid from probe_discover.
+```
+
+If you already know your target string:
+
+```
+Call session_start with target="stm32g474".
 ```
 
 ---
