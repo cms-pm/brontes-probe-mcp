@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 *(no changes yet)*
 
+## [0.2.1] - 2026-06-10
+
+### Fixed
+
+- `__version__` in `brontes_probe_mcp.__init__` was not updated to match
+  `pyproject.toml` in the `0.2.0` release, causing a mismatch between
+  `importlib.metadata.version()` and the module attribute.
+
+### Changed
+
+- README restructured: Quick start is now the first major section; deployment
+  options lead with probe/target auto-detection; all client config snippets
+  include the packs volume mount (`/packs`) and `CMSIS_PACK_ROOT` env var
+  that were missing in `0.2.0`.
+
 ## [0.2.0] - 2026-06-09
 
 ### Added
@@ -158,7 +173,8 @@ PyPI namespace reservation (`Development Status :: 1 - Planning`). No
 functional wheel. Typed `BrokerCore` surface and repo skeleton
 (`pyproject.toml`, CI matrix, governance files).
 
-[Unreleased]: https://github.com/cms-pm/brontes-probe-mcp/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/cms-pm/brontes-probe-mcp/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/cms-pm/brontes-probe-mcp/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/cms-pm/brontes-probe-mcp/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/cms-pm/brontes-probe-mcp/releases/tag/v0.1.0
 [0.0.0]: https://github.com/cms-pm/brontes-probe-mcp/releases/tag/v0.0.0
