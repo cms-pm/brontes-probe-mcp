@@ -38,19 +38,19 @@ Add brontes-probe-mcp to .mcp.json in this project, creating it if needed:
         "-v", "${HOME}/.brontes-probe-mcp/packs:/packs",
         "-e", "PROBE_BROKER_TRANSPORTS=stdio,socket",
         "-e", "CMSIS_PACK_ROOT=/packs",
-        "ghcr.io/cms-pm/brontes-probe-mcp@sha256:TBD"
+        "ghcr.io/cms-pm/brontes-probe-mcp@sha256:61e4d0423085ac734a938b2a45a984e5197e1803326547f5d13d519e67798e91"
       ]
     }
   }
 }
 
 Then pull the image:
-docker pull ghcr.io/cms-pm/brontes-probe-mcp@sha256:TBD
+docker pull ghcr.io/cms-pm/brontes-probe-mcp@sha256:61e4d0423085ac734a938b2a45a984e5197e1803326547f5d13d519e67798e91
 
 Then tell me to restart Claude Code to load the new server.
 ```
 
-Replace `sha256:TBD` with the digest from [CHANGELOG.md](CHANGELOG.md).
+Replace `sha256:61e4d0423085ac734a938b2a45a984e5197e1803326547f5d13d519e67798e91` with the digest from [CHANGELOG.md](CHANGELOG.md).
 
 #### Docker on macOS (Docker Desktop)
 
@@ -77,7 +77,7 @@ Add brontes-probe-mcp to .mcp.json in this project, creating it if needed:
         "-e", "PROBE_BROKER_TRANSPORTS=stdio,socket",
         "-e", "CMSIS_PACK_ROOT=/packs",
         "-e", "PROBE_BROKER_GDB_HOST=host.docker.internal",
-        "ghcr.io/cms-pm/brontes-probe-mcp@sha256:TBD"
+        "ghcr.io/cms-pm/brontes-probe-mcp@sha256:61e4d0423085ac734a938b2a45a984e5197e1803326547f5d13d519e67798e91"
       ]
     }
   }
@@ -292,7 +292,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`
       "-v", "${HOME}/.brontes-probe-mcp/packs:/packs",
       "-e", "PROBE_BROKER_TRANSPORTS=stdio,socket",
       "-e", "CMSIS_PACK_ROOT=/packs",
-      "ghcr.io/cms-pm/brontes-probe-mcp@sha256:TBD"
+      "ghcr.io/cms-pm/brontes-probe-mcp@sha256:61e4d0423085ac734a938b2a45a984e5197e1803326547f5d13d519e67798e91"
     ]
   }
 }
@@ -319,7 +319,7 @@ config):
         "-v", "${HOME}/.brontes-probe-mcp/packs:/packs",
         "-e", "PROBE_BROKER_TRANSPORTS=stdio,socket",
         "-e", "CMSIS_PACK_ROOT=/packs",
-        "ghcr.io/cms-pm/brontes-probe-mcp@sha256:TBD"
+        "ghcr.io/cms-pm/brontes-probe-mcp@sha256:61e4d0423085ac734a938b2a45a984e5197e1803326547f5d13d519e67798e91"
       ]
     }
   }
@@ -342,7 +342,7 @@ Add to `~/.codex/config.json`:
         "-v", "${HOME}/.brontes-probe-mcp/packs:/packs",
         "-e", "PROBE_BROKER_TRANSPORTS=stdio,socket",
         "-e", "CMSIS_PACK_ROOT=/packs",
-        "ghcr.io/cms-pm/brontes-probe-mcp@sha256:TBD"
+        "ghcr.io/cms-pm/brontes-probe-mcp@sha256:61e4d0423085ac734a938b2a45a984e5197e1803326547f5d13d519e67798e91"
       ]
     }
   }
@@ -367,7 +367,7 @@ Add to `opencode.json` in your project root:
           "-v", "${HOME}/.brontes-probe-mcp/packs:/packs",
           "-e", "PROBE_BROKER_TRANSPORTS=stdio,socket",
           "-e", "CMSIS_PACK_ROOT=/packs",
-          "ghcr.io/cms-pm/brontes-probe-mcp@sha256:TBD"
+          "ghcr.io/cms-pm/brontes-probe-mcp@sha256:61e4d0423085ac734a938b2a45a984e5197e1803326547f5d13d519e67798e91"
         ]
       }
     }
@@ -376,7 +376,7 @@ Add to `opencode.json` in your project root:
 ```
 <!-- END client-configs -->
 
-Replace `sha256:TBD` with the pinned digest from [CHANGELOG.md](CHANGELOG.md).
+Replace `sha256:61e4d0423085ac734a938b2a45a984e5197e1803326547f5d13d519e67798e91` with the pinned digest from [CHANGELOG.md](CHANGELOG.md).
 
 ## Why "Brontes"
 

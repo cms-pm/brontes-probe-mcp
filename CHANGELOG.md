@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.1] - 2026-06-10
 
+Image digest (pinned):
+`ghcr.io/cms-pm/brontes-probe-mcp@sha256:61e4d0423085ac734a938b2a45a984e5197e1803326547f5d13d519e67798e91`
+
 ### Fixed
 
 - `__version__` in `brontes_probe_mcp.__init__` was not updated to match
