@@ -44,7 +44,8 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 ENV PROBE_BROKER_TRANSPORTS=stdio,socket \
     PROBE_BROKER_SOCKET_PATH=/run/brontes-probe-mcp/probe.sock \
-    PROBE_BROKER_LOG_DIR=/run/brontes-probe-mcp/logs
+    PROBE_BROKER_LOG_DIR=/run/brontes-probe-mcp/logs \
+    PROBE_BROKER_AGENT_STATE_DIR=/run/brontes-probe-mcp
 
 VOLUME ["/run/brontes-probe-mcp"]
 
