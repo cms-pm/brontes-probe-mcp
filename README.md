@@ -4,7 +4,7 @@ A Model Context Protocol (MCP) server that gives AI assistants direct access
 to a debug probe — flash firmware, halt/resume, read memory, and stream ITM
 trace, all without leaving the conversation.
 
-**Status: 0.2.1 — fully operational.**
+**Status: 0.2.2 — fully operational.**
 Session lifecycle, probe operations, ITM/SWO trace, and lane supervision over
 three concurrent transports (stdio MCP, Unix socket, loopback TCP).
 
@@ -257,7 +257,7 @@ docker run -d --name brontes-probe-mcp \
   -e PROBE_BROKER_TOKEN=your-token-here \
   -p 127.0.0.1:7172:7172 \
   --device=/dev/bus/usb \
-  ghcr.io/cms-pm/brontes-probe-mcp:0.2.1
+  ghcr.io/cms-pm/brontes-probe-mcp:0.2.2
 ```
 
 ### Pinning by digest

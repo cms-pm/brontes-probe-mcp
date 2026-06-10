@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 *(no changes yet)*
 
+## [0.2.2] - 2026-06-10
+
+### Fixed
+
+- README relative links (CHANGELOG, LICENSE, docs/tutorials) replaced with
+  absolute GitHub URLs so they resolve correctly on PyPI.
+
 ## [0.2.1] - 2026-06-10
 
 Image digest (pinned):
@@ -176,7 +183,8 @@ PyPI namespace reservation (`Development Status :: 1 - Planning`). No
 functional wheel. Typed `BrokerCore` surface and repo skeleton
 (`pyproject.toml`, CI matrix, governance files).
 
-[Unreleased]: https://github.com/cms-pm/brontes-probe-mcp/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/cms-pm/brontes-probe-mcp/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/cms-pm/brontes-probe-mcp/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/cms-pm/brontes-probe-mcp/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/cms-pm/brontes-probe-mcp/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/cms-pm/brontes-probe-mcp/releases/tag/v0.1.0
