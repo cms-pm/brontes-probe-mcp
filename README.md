@@ -50,7 +50,7 @@ docker pull ghcr.io/cms-pm/brontes-probe-mcp@sha256:61e4d0423085ac734a938b2a45a9
 Then tell me to restart Claude Code to load the new server.
 ```
 
-Replace `sha256:61e4d0423085ac734a938b2a45a984e5197e1803326547f5d13d519e67798e91` with the digest from [CHANGELOG.md](CHANGELOG.md).
+Replace `sha256:61e4d0423085ac734a938b2a45a984e5197e1803326547f5d13d519e67798e91` with the digest from [CHANGELOG.md](https://github.com/cms-pm/brontes-probe-mcp/blob/main/CHANGELOG.md).
 
 #### Docker on macOS (Docker Desktop)
 
@@ -236,7 +236,7 @@ Capture a binary snapshot of the target's flash for archiving or diff:
 Defaults to `0x08000000`–`0x08080000` (512 KB). Requires an active session.
 Response includes `bytes_written` and `snapshot_at` (UTC ISO-8601).
 
-See [docs/tutorials/blackbox-export.md](docs/tutorials/blackbox-export.md) for
+See [docs/tutorials/blackbox-export.md](https://github.com/cms-pm/brontes-probe-mcp/blob/main/docs/tutorials/blackbox-export.md) for
 custom address ranges, error cases, and snapshot comparison examples.
 
 ## Advanced deployment
@@ -269,7 +269,7 @@ contract:
 ghcr.io/cms-pm/brontes-probe-mcp@sha256:<digest>
 ```
 
-Digests are published in [CHANGELOG.md](CHANGELOG.md) for each release.
+Digests are published in [CHANGELOG.md](https://github.com/cms-pm/brontes-probe-mcp/blob/main/CHANGELOG.md) for each release.
 
 ## Client configuration
 
@@ -376,7 +376,7 @@ Add to `opencode.json` in your project root:
 ```
 <!-- END client-configs -->
 
-Replace `sha256:61e4d0423085ac734a938b2a45a984e5197e1803326547f5d13d519e67798e91` with the pinned digest from [CHANGELOG.md](CHANGELOG.md).
+Replace `sha256:61e4d0423085ac734a938b2a45a984e5197e1803326547f5d13d519e67798e91` with the pinned digest from [CHANGELOG.md](https://github.com/cms-pm/brontes-probe-mcp/blob/main/CHANGELOG.md).
 
 ## Why "Brontes"
 
@@ -387,8 +387,8 @@ probe work.
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md).
+See [CHANGELOG.md](https://github.com/cms-pm/brontes-probe-mcp/blob/main/CHANGELOG.md).
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE).
+Apache-2.0. See [LICENSE](https://github.com/cms-pm/brontes-probe-mcp/blob/main/LICENSE).
