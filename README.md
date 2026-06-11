@@ -278,8 +278,7 @@ Configure your AI client to launch the server via the MCP stdio transport.
 <!-- BEGIN client-configs -->
 ### Claude Desktop
 
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`
-(Linux: `~/.config/Claude/claude_desktop_config.json`):
+Add the following entry to the `mcpServers` object in `~/Library/Application Support/Claude/claude_desktop_config.json` (Linux: `~/.config/Claude/claude_desktop_config.json`):
 
 ```json
 {
@@ -298,14 +297,9 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`
 }
 ```
 
-macOS users: omit `--device=/dev/bus/usb` and add
-`"-e", "PROBE_BROKER_GDB_HOST=host.docker.internal"` after running
-`brontes-probe-mcp-cli probe-agent start` on the host.
-
 ### Claude Code
 
-Add to `.mcp.json` in your project root (or `~/.claude.json` for global
-config):
+Add to `.mcp.json` in your project root (or `~/.claude.json` for global config):
 
 ```json
 {

@@ -6,7 +6,9 @@
         "run", "--rm", "-i",
         "--device=/dev/bus/usb",
         "-v", "${HOME}/.brontes-probe-mcp:/run/brontes-probe-mcp",
+        "-v", "${HOME}/.brontes-probe-mcp/packs:/packs",
         "-e", "PROBE_BROKER_TRANSPORTS={{ transports }}",
+        "-e", "CMSIS_PACK_ROOT=/packs",
         "ghcr.io/cms-pm/brontes-probe-mcp@{{ image_digest }}"
       ]
     }
