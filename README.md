@@ -1,7 +1,25 @@
 # brontes-probe-mcp
 
+<img src="brontes.png" alt="brontes-probe-mcp logo" width="100%">
+
 <p align="center">
-  <img src="brontes.png" alt="brontes-probe-mcp logo" width="200">
+  <a href="https://github.com/cms-pm/brontes-probe-mcp/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/cms-pm/brontes-probe-mcp/ci.yml?branch=main&style=flat-square&label=CI" alt="CI"></a>
+  <a href="https://pypi.org/project/brontes-probe-mcp/"><img src="https://img.shields.io/pypi/v/brontes-probe-mcp?style=flat-square&label=PyPI" alt="PyPI"></a>
+  <a href="https://pypi.org/project/brontes-probe-mcp/"><img src="https://img.shields.io/pypi/pyversions/brontes-probe-mcp?style=flat-square" alt="Python"></a>
+  <a href="https://github.com/cms-pm/brontes-probe-mcp/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" alt="License"></a>
+</p>
+<p align="center">
+  <img src="https://img.shields.io/badge/ARM-Cortex--M-0091BD?style=flat-square&logo=arm&logoColor=white" alt="ARM Cortex-M">
+  <img src="https://img.shields.io/badge/STM32-compatible-03234B?style=flat-square&logo=stmicroelectronics&logoColor=white" alt="STM32">
+  <img src="https://img.shields.io/badge/CMSIS--Pack-supported-blue?style=flat-square" alt="CMSIS-Pack">
+  <img src="https://img.shields.io/badge/pyocd-backend-4CAF50?style=flat-square" alt="pyocd">
+</p>
+<p align="center">
+  <img src="https://img.shields.io/badge/macOS-supported-000000?style=flat-square&logo=apple&logoColor=white" alt="macOS">
+  <img src="https://img.shields.io/badge/Linux-supported-FCC624?style=flat-square&logo=linux&logoColor=black" alt="Linux">
+  <img src="https://img.shields.io/badge/Windows-pip%20install-0078D4?style=flat-square&logo=windows&logoColor=white" alt="Windows">
+  <img src="https://img.shields.io/badge/Docker-GHCR-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker">
+  <img src="https://img.shields.io/badge/MCP-stdio%20%7C%20socket%20%7C%20TCP-7C3AED?style=flat-square" alt="MCP">
 </p>
 
 A Model Context Protocol (MCP) server that gives AI assistants direct access
