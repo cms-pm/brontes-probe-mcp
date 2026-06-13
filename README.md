@@ -1,5 +1,9 @@
 # brontes-probe-mcp
 
+<p align="center">
+  <img src="brontes.png" alt="brontes-probe-mcp logo" width="200">
+</p>
+
 A Model Context Protocol (MCP) server that gives AI assistants direct access
 to a debug probe — flash firmware, halt/resume, read memory, and stream ITM
 trace, all without leaving the conversation.
