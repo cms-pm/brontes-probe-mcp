@@ -7,7 +7,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-*(no changes yet)*
+### Added
+
+- `pack_cache_reset()` — broker method (and `pack_cache_reset` MCP tool) that
+  removes every file under `BrokerConfig.pyocd_pack_index_dir` and re-runs
+  `pyocd pack update`. Opt-in recovery for a corrupt CMSIS pack index;
+  returns `PackCacheResetResult(removed, rebuilt, duration_ms, output)`.
+- Typed `PackIndexCorruptError` (raised by `pack_search`, `pack_install`,
+  `pack_update`, `target_suggest` when the pyOCD pack index is unreadable)
+  and `PackParseError` (raised by local-PDSC parsing). Both surface across
+  the socket/TCP/stdio transports as `error.kind = "pack_index_corrupt"` /
+  `"pack_parse_error"`, with `details` carrying `cause_class`,
+  `cause_message`, `index_path_hint`, and `remediation`.
+- `BrokerConfig.pyocd_pack_index_dir`
+  (env: `PROBE_BROKER_PYOCD_PACK_INDEX_DIR`,
+  default `~/.pyocd/packs/index`) — controls the directory inspected and
+  cleared by `pack_cache_reset`.
+- `target_suggest` local-PDSC bypass: when `pack=` points at a directory
+  containing a `.pdsc` file, the global pyOCD pack cache is skipped entirely
+  and the PDSC `<devices>` block is parsed directly (stdlib `xml.etree`).
+  `TargetInfo` gains optional `pdsc_path: Path | None`; the `source` field
+  is `"local_pdsc"` on this path.
+- `ProbeState.reset_command_echo` / `reset_cause_hint` — echo of the exact
+  `monitor reset ...` command issued by `reset()` and a best-effort hint
+  from the GDB response.
+- `itm_stream_export(out, decode=True)` — snapshot the captured SWO ring buffer
+  to disk. Writes raw bytes to `<out>.raw.bin` and (when `decode=True`)
+  JSON-Lines records to `<out>.decoded.jsonl`, one per decoded ITM software
+  (SWIT) packet. Registered as the `itm_stream_export` MCP tool.
+- `ItmStreamSummary` additive fields: `bytes_captured`, `packet_count`,
+  `overflow_count`, `artifact_path`. Existing callers that read only
+  `stopped` continue to work.
+- `ItmStreamExport` model returned by `itm_stream_export`:
+  `raw_artifact_path`, `decoded_artifact_path`, `bytes_written`,
+  `packet_count`, `cpu_clock_hz`, `trace_clock_hz`.
+- `BlackboxExportResult` additive fields: `resolved_addr`,
+  `resolved_length`, `resolved_from_region` — record which range the
+  call actually resolved to.
+- `BrokerConfig.itm_buffer_bytes` (env: `PROBE_BROKER_ITM_BUFFER_BYTES`,
+  default 1 MiB) — bounded ring buffer for the SWO capture lane.
+- `core/itm.py` — `SwoSource` protocol, `NullSwoSource`,
+  `PyocdSwvTcpSource`, and a first-pass SWIT-packet decoder.
+
+### Changed
+
+- `BrokerCore.reset` accepts an expanded `kind` catalog:
+  `{"soft", "hard", "sw", "system", "core", "backend_default"}`. Each maps
+  to a documented `monitor reset ...` GDB command. The docstring carries
+  the per-kind semantics and an explicit warning that `hard`/`sw` reset
+  the debug domain and may mask IWDG-induced resets. Pre-2.1.2 callers
+  using `kind="soft"` / `kind="hard"` keep their behavior unchanged.
+- `ItmSwoLane` now runs a background reader thread that drains a
+  pluggable `SwoSource` into the ring buffer, tracking byte and packet
+  counts plus SWO overflow (0x70) bytes. The default source connects
+  to pyocd gdbserver's SWV TCP channel when `enable_swv=True`; the
+  null source otherwise, so the lane stays a no-op for callers that
+  don't enable SWV.
+
+### Breaking
+
+- `BrokerCore.blackbox_export` no longer defaults to the 512 KB flash
+  range `0x08000000–0x08080000`. Callers must now supply exactly one
+  of: `(start_addr, end_addr)`, `(addr, length)`, or a named `region`
+  from the advisory registry (`sram_blackbox` is the seed entry).
+  Calling with none raises `ValueError`. Motivation: the prior
+  default took ~4 minutes for a 48-byte evidence slice in the 0.2.2
+  first-use capture.
 
 ## [0.2.2] - 2026-06-10
 

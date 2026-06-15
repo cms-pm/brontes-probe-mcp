@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel
 
 from brontes_probe_mcp.core.broker import SessionRequiredError
+from brontes_probe_mcp.core.errors import PackIndexCorruptError, PackParseError
 
 if TYPE_CHECKING:
     from brontes_probe_mcp.core.broker import BrokerCore
@@ -19,6 +20,7 @@ _VERB_ALIAS: dict[str, str] = {
 _PATH_KWARGS: dict[str, frozenset[str]] = {
     "program": frozenset({"artifact"}),
     "blackbox_export": frozenset({"out"}),
+    "itm_stream_export": frozenset({"out"}),
 }
 
 
@@ -51,6 +53,23 @@ def dispatch(broker: BrokerCore, method: str, kwargs: dict[str, Any]) -> Any:
         result = fn(**kwargs)
     except SessionRequiredError as exc:
         return json.loads(error_response("session_required", str(exc)))
+    except PackIndexCorruptError as exc:
+        return json.loads(error_response(
+            "pack_index_corrupt",
+            str(exc),
+            details={
+                "cause_class": exc.cause_class,
+                "cause_message": exc.cause_message,
+                "index_path_hint": exc.index_path_hint,
+                "remediation": exc.remediation,
+            },
+        ))
+    except PackParseError as exc:
+        return json.loads(error_response(
+            "pack_parse_error",
+            str(exc),
+            details={"pdsc_path": exc.pdsc_path},
+        ))
     except (ValueError, TypeError) as exc:
         return json.loads(error_response("invalid_kwargs", str(exc)))
     except RuntimeError as exc:

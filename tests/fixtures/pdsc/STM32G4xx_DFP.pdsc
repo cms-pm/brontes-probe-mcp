@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<package schemaVersion="1.7.36">
+  <vendor>STMicroelectronics</vendor>
+  <name>STM32G4xx_DFP</name>
+  <description>STMicroelectronics STM32G4 series</description>
+  <devices>
+    <family Dfamily="STM32G4 Series" Dvendor="STMicroelectronics:13">
+      <description>STM32G4 ARM Cortex-M4 microcontrollers</description>
+      <subFamily DsubFamily="STM32G474">
+        <device Dname="stm32g474ceux">
+          <processor Pname="cm4" Dcore="Cortex-M4" />
+        </device>
+        <device Dname="stm32g474retx">
+          <processor Pname="cm4" Dcore="Cortex-M4" />
+        </device>
+      </subFamily>
+    </family>
+  </devices>
+</package>

@@ -130,7 +130,10 @@ def test_all_15_tools_callable(broker_instance: BrokerCore, tmp_path: Path) -> N
         ("probe_mem_read", {"addr": 0x20000000, "length": 4}),
         ("probe_program", {"artifact": str(elf)}),
         ("probe_flash", {"artifact": str(elf)}),
-        ("probe_blackbox_export", {"out": str(out)}),
+        (
+            "probe_blackbox_export",
+            {"out": str(out), "addr": 0x20000000, "length": 16},
+        ),
     ]
     for name, args in gdb_tools:
         result = _call(broker_instance, name, args)

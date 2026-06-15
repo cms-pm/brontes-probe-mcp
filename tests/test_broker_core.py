@@ -150,15 +150,15 @@ def test_blackbox_export_returns_result(
 def test_blackbox_export_requires_session(broker: BrokerCore, tmp_path: Path) -> None:
     out = tmp_path / "export.bin"
     with pytest.raises(SessionRequiredError):
-        broker.blackbox_export(out=out)
+        broker.blackbox_export(out=out, addr=0x20000000, length=16)
 
 
-def test_blackbox_export_missing_file(
+def test_blackbox_export_no_range_raises(
     broker_with_session: BrokerCore, tmp_path: Path
 ) -> None:
     out = tmp_path / "nonexistent.bin"
-    result = broker_with_session.blackbox_export(out=out)
-    assert result.bytes_written == 0
+    with pytest.raises(ValueError, match="start_addr"):
+        broker_with_session.blackbox_export(out=out)
 
 
 # ── FND-001: GDB error propagation ───────────────────────────────────────────
