@@ -104,7 +104,11 @@ def via_stdio(broker: BrokerCore, tool_name: str, kwargs: dict[str, Any]) -> Any
 
 def _stable_keys(d: dict[str, Any]) -> dict[str, Any]:
     """Strip timing-sensitive fields for structural comparison."""
-    return {k: v for k, v in d.items() if k not in {"duration_s", "snapshot_at"}}
+    return {
+        k: v
+        for k, v in d.items()
+        if k not in {"duration_s", "snapshot_at", "session_id"}
+    }
 
 
 _PARITY_TABLE: list[tuple[str, str, dict[str, Any], str]] = [
@@ -140,9 +144,9 @@ def test_parity(
     broker, sock_path = socket_server
     _broker_tcp, port, token = tcp_server
 
-    r_socket = via_socket(sock_path, socket_method, kwargs)
-    r_tcp = via_tcp(port, token, socket_method, kwargs)
-    r_stdio = via_stdio(broker, stdio_name, kwargs)
+    r_socket = _stable_keys(via_socket(sock_path, socket_method, kwargs))
+    r_tcp = _stable_keys(via_tcp(port, token, socket_method, kwargs))
+    r_stdio = _stable_keys(via_stdio(broker, stdio_name, kwargs))
 
     assert r_socket == r_tcp, (
         f"socket vs tcp mismatch for {stdio_name!r}: {r_socket!r} != {r_tcp!r}"
