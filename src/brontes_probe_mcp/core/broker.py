@@ -14,14 +14,18 @@ from pathlib import Path
 from typing import Any, Literal
 
 from brontes_probe_mcp.core.config import BrokerConfig
+from brontes_probe_mcp.core.errors import PackIndexCorruptError, PackParseError
+from brontes_probe_mcp.core.itm import decode_software_packets
 from brontes_probe_mcp.core.lanes import LaneSupervisor
 from brontes_probe_mcp.core.models import (
     BlackboxExportResult,
+    ItmStreamExport,
     ItmStreamHandle,
     ItmStreamSummary,
     LaneStatus,
     LogLine,
     MemReadResult,
+    PackCacheResetResult,
     PackInstallResult,
     PackSearchResult,
     PackUpdateResult,
@@ -34,6 +38,62 @@ from brontes_probe_mcp.core.models import (
     TargetSuggestResult,
 )
 from brontes_probe_mcp.core.session import SessionManager
+
+# Reset-kind catalog: maps the kind literal to the exact `monitor reset ...`
+# command issued. The pyOCD gdbserver supports these as `monitor reset
+# <kind>` per its `MonitorReset` command handler.
+_RESET_KIND_TO_CMD: dict[str, str] = {
+    "soft": "monitor reset soft",
+    "hard": "monitor reset hard",
+    "sw": "monitor reset sw",
+    "system": "monitor reset system",
+    "core": "monitor reset core",
+    "backend_default": "monitor reset",
+}
+
+ResetKind = Literal[
+    "soft", "hard", "sw", "system", "core", "backend_default"
+]
+
+# Substrings in subprocess stderr that signal a corrupt pack index.
+_PACK_CORRUPT_SIGNATURES: tuple[str, ...] = (
+    "JSONDecodeError",
+    "Extra data:",
+    "Expecting value:",
+)
+
+# GDB --batch preamble lines to skip when extracting a reset cause hint.
+_GDB_PREAMBLE_PREFIXES: tuple[str, ...] = (
+    "Reading symbols",
+    "Remote debugging using",
+    "warning:",
+    "GNU gdb",
+    "Copyright",
+    "License GPLv3",
+    "This GDB was configured",
+    "Type \"apropos",
+    "For bug reporting",
+    "(No debugging symbols",
+)
+
+
+def _extract_reset_cause(stdout: str, stderr: str) -> str | None:
+    """Pick the most informative non-preamble line from GDB output.
+
+    Prefers stderr (where pyOCD's reset diagnostics typically land),
+    falling back to stdout. Skips GDB's --batch boilerplate.
+    """
+    for source in (stderr, stdout):
+        for line in source.splitlines():
+            s = line.strip()
+            if not s:
+                continue
+            if s.startswith(_GDB_PREAMBLE_PREFIXES):
+                continue
+            if " in ?? ()" in s:
+                continue
+            return s[:200]
+    return None
 
 
 class SessionRequiredError(RuntimeError):
@@ -108,7 +168,10 @@ class BrokerCore:
                 "call session_start first"
             )
 
-    def _run_gdb(self, commands: list[str], symbol_file: Path | None = None) -> str:
+    def _exec_gdb(
+        self, commands: list[str], symbol_file: Path | None = None
+    ) -> tuple[str, str]:
+        """Run GDB --batch; return (stdout, stderr). Raises on nonzero exit."""
         args: list[str] = [
             self._config.gdb_bin,
             "--batch",
@@ -128,7 +191,11 @@ class BrokerCore:
             raise RuntimeError(
                 f"GDB exited {result.returncode}: {detail or '(no output)'}"
             )
-        return str(result.stdout)
+        return str(result.stdout), str(result.stderr or "")
+
+    def _run_gdb(self, commands: list[str], symbol_file: Path | None = None) -> str:
+        stdout, _ = self._exec_gdb(commands, symbol_file=symbol_file)
+        return stdout
 
     def program(
         self,
@@ -181,16 +248,52 @@ class BrokerCore:
 
     def reset(
         self,
-        kind: Literal["soft", "hard"] = "soft",
+        kind: ResetKind = "soft",
         halt_after: bool = False,
     ) -> ProbeState:
+        """Reset the target via GDB monitor command.
+
+        Kind catalog (pyOCD-gdbserver backend):
+          - ``soft``: vector-table reset; debug domain preserved.
+          - ``hard``: SRST line asserted; full chip reset incl. debug domain.
+          - ``sw``: debugger-issued SYSRESETREQ (AIRCR); on STM32G4 this
+            registers as an SRON-style boot_outcome in firmware blackboxes.
+          - ``system``: NVIC system reset; preserves debug. Similar to
+            ``soft`` on most Cortex-M targets.
+          - ``core``: core-only reset; peripherals retain state.
+          - ``backend_default``: whatever the backend defaults to;
+            parity with pre-2.1.2 callers that issued ``monitor reset``.
+
+        Watchdog-masking caveat: any reset kind that resets the debug
+        domain (notably ``hard`` and ``sw``) can convert IWDG-induced
+        resets into debugger-induced ones, silently passing watchdog
+        tests that should fail. For watchdog reconciliation, prefer
+        ``soft`` or read the post-reset cause register directly.
+        """
         self._require_session()
-        cmds = [f"monitor reset {kind}"]
+        cmd = _RESET_KIND_TO_CMD.get(kind)
+        if cmd is None:
+            known = sorted(_RESET_KIND_TO_CMD)
+            raise ValueError(f"unknown reset kind {kind!r}; known: {known}")
+        cmds = [cmd]
         if halt_after:
             cmds.append("monitor halt")
-        self._run_gdb(cmds)
-        self._log_op("reset", payload={"kind": kind, "halt_after": halt_after})
-        return ProbeState(reset=True, halted_after=halt_after)
+        stdout, stderr = self._exec_gdb(cmds)
+        cause_hint = _extract_reset_cause(stdout, stderr)
+        self._log_op(
+            "reset",
+            payload={
+                "kind": kind,
+                "halt_after": halt_after,
+                "command": cmd,
+            },
+        )
+        return ProbeState(
+            reset=True,
+            halted_after=halt_after,
+            reset_command_echo=cmd,
+            reset_cause_hint=cause_hint,
+        )
 
     def mem_read(
         self,
@@ -216,37 +319,86 @@ class BrokerCore:
         self._log_op("mem_read", payload={"addr": addr, "length": length})
         return MemReadResult(addr=addr, length=length, format=format, value=value)
 
+    # Advisory named-region registry. Targets vary, so these are documented
+    # as starting points — callers should override per target when needed.
+    _BLACKBOX_REGIONS: dict[str, tuple[int, int]] = {
+        "sram_blackbox": (0x20000000, 64),
+    }
+
     def blackbox_export(
         self,
         out: Path,
-        start_addr: int = 0x08000000,
-        end_addr: int = 0x08080000,
+        start_addr: int | None = None,
+        end_addr: int | None = None,
+        addr: int | None = None,
+        length: int | None = None,
+        region: str | None = None,
     ) -> BlackboxExportResult:
-        """Export a binary flash snapshot via GDB dump binary memory.
+        """Export a binary memory snapshot via GDB.
 
-        start_addr/end_addr define the memory range; defaults cover 512 KB
-        from the standard ARM Cortex-M flash origin. Requires an active session.
+        Exactly one range form must be supplied:
+          - (start_addr, end_addr): half-open range, end_addr exclusive
+          - (addr, length):         length bytes starting at addr
+          - region:                 named entry from the advisory registry
+
+        No defaults — passing none of the three raises ValueError.
         """
+        resolved_from_region: str | None = None
+        if region is not None:
+            if region not in self._BLACKBOX_REGIONS:
+                known = sorted(self._BLACKBOX_REGIONS)
+                raise ValueError(
+                    f"unknown region {region!r}; known regions: {known}"
+                )
+            resolved_addr, resolved_length = self._BLACKBOX_REGIONS[region]
+            resolved_from_region = region
+        elif addr is not None and length is not None:
+            resolved_addr, resolved_length = addr, length
+        elif start_addr is not None and end_addr is not None:
+            resolved_addr = start_addr
+            resolved_length = end_addr - start_addr
+        else:
+            raise ValueError(
+                "blackbox_export requires one of: (start_addr, end_addr), "
+                "(addr, length), or region"
+            )
+
+        if resolved_length <= 0:
+            raise ValueError(
+                f"blackbox_export length must be positive (got {resolved_length})"
+            )
+
         self._require_session()
         snapshot_at = datetime.now(tz=UTC)
-        range_size = end_addr - start_addr
-        words = max(1, (range_size + 3) // 4)
-        # Use x/Nwx instead of "dump binary memory": GDB 8.3 (PlatformIO toolchain)
-        # crashes with SIGSEGV when running dump binary memory without an ELF loaded.
-        output = self._run_gdb([f"x/{words}wx 0x{start_addr:08x}"])
+        words = max(1, (resolved_length + 3) // 4)
+        # x/Nwx instead of "dump binary memory": GDB 8.3 (PlatformIO toolchain)
+        # crashes with SIGSEGV running dump binary memory without an ELF loaded.
+        output = self._run_gdb([f"x/{words}wx 0x{resolved_addr:08x}"])
         hex_words = _parse_gdb_hex_dump(output)
         raw = b""
         for w in hex_words:
             raw += int(w, 16).to_bytes(4, byteorder="little")
-        raw = raw[:range_size]
+        raw = raw[:resolved_length]
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(raw)
         bytes_written = out.stat().st_size if out.exists() else 0
         self._log_op(
-            "blackbox_export", payload={"out": str(out), "bytes_written": bytes_written}
+            "blackbox_export",
+            payload={
+                "out": str(out),
+                "bytes_written": bytes_written,
+                "addr": resolved_addr,
+                "length": resolved_length,
+                "region": resolved_from_region,
+            },
         )
         return BlackboxExportResult(
-            out=out, bytes_written=bytes_written, snapshot_at=snapshot_at
+            out=out,
+            bytes_written=bytes_written,
+            snapshot_at=snapshot_at,
+            resolved_addr=resolved_addr,
+            resolved_length=resolved_length,
+            resolved_from_region=resolved_from_region,
         )
 
     def itm_stream_start(
@@ -267,6 +419,58 @@ class BrokerCore:
         summary = self._lanes.itm_swo.stop()
         self._log_op("itm_stream_stop", lane="itm_swo")
         return summary
+
+    def itm_stream_export(
+        self,
+        out: Path,
+        decode: bool = True,
+    ) -> ItmStreamExport:
+        """Snapshot the captured SWO ring buffer to disk.
+
+        Writes raw bytes to ``<out>.raw.bin``. When decode is True, also
+        writes a JSON Lines file at ``<out>.decoded.jsonl`` with one
+        record per decoded ITM software (SWIT) packet. Safe to call
+        while capture is active; safe to call multiple times.
+        """
+        raw_path = Path(f"{out}.raw.bin")
+        raw_path.parent.mkdir(parents=True, exist_ok=True)
+        raw = self._lanes.itm_swo.snapshot_bytes()
+        raw_path.write_bytes(raw)
+        bytes_written = raw_path.stat().st_size if raw_path.exists() else 0
+
+        ports, cpu_clock_hz, trace_clock_hz = self._lanes.itm_swo.context()
+        port_filter: set[int] | None = set(ports) if ports else None
+
+        decoded_path: Path | None = None
+        packet_count = 0
+        if decode:
+            decoded_path = Path(f"{out}.decoded.jsonl")
+            records, packet_count = decode_software_packets(
+                raw, port_filter=port_filter
+            )
+            decoded_path.write_text(
+                "".join(json.dumps(r) + "\n" for r in records)
+            )
+
+        self._lanes.itm_swo.set_export_artifact(raw_path)
+        self._log_op(
+            "itm_stream_export",
+            lane="itm_swo",
+            payload={
+                "out": str(out),
+                "bytes_written": bytes_written,
+                "packet_count": packet_count,
+                "decode": decode,
+            },
+        )
+        return ItmStreamExport(
+            raw_artifact_path=raw_path,
+            decoded_artifact_path=decoded_path,
+            bytes_written=bytes_written,
+            packet_count=packet_count,
+            cpu_clock_hz=cpu_clock_hz,
+            trace_clock_hz=trace_clock_hz,
+        )
 
     def lane_status(self) -> dict[str, LaneStatus]:
         return self._lanes.lane_status()
@@ -322,6 +526,88 @@ class BrokerCore:
         self._log_op("probe_discover", payload={"count": len(probes)})
         return ProbeDiscoverResult(probes=probes)
 
+    def _raise_if_pack_corrupt(self, stderr: str, stdout: str = "") -> None:
+        """Inspect subprocess output for corrupt-pack-index signatures.
+
+        Raises PackIndexCorruptError when JSONDecodeError patterns appear
+        in stderr (or stdout — pyOCD streams the traceback to either).
+        """
+        combined = f"{stderr}\n{stdout}"
+        matched = next(
+            (sig for sig in _PACK_CORRUPT_SIGNATURES if sig in combined), None
+        )
+        if matched is None:
+            return
+        # Derive a best-effort cause_class from whichever signature fired;
+        # all three are subclasses/messages of json.JSONDecodeError in practice.
+        cause_class = (
+            "json.JSONDecodeError" if matched == "JSONDecodeError"
+            else f"json.JSONDecodeError ({matched.rstrip(':')})"
+        )
+        cause_message = stderr.strip() or stdout.strip()
+        raise PackIndexCorruptError(
+            "pyOCD pack index appears corrupt; run pack_cache_reset",
+            cause_class=cause_class,
+            cause_message=cause_message[:1000],
+            index_path_hint=self._config.pyocd_pack_index_dir,
+        )
+
+    def _parse_local_pdsc_targets(
+        self, pdsc_dir: Path, query: str
+    ) -> list[TargetInfo]:
+        """Parse every .pdsc file in pdsc_dir; return matching devices.
+
+        Raises PackParseError on the first malformed PDSC encountered;
+        returns an empty list when the directory has no .pdsc files.
+        Iterates sorted file order for deterministic results across runs.
+        """
+        import xml.etree.ElementTree as ET
+
+        pdsc_files = sorted(pdsc_dir.glob("*.pdsc"))
+        if not pdsc_files:
+            return []
+        q = query.lower()
+        matches: list[TargetInfo] = []
+        for pdsc_path in pdsc_files:
+            try:
+                tree = ET.parse(pdsc_path)
+            except ET.ParseError as exc:
+                raise PackParseError(
+                    f"failed to parse PDSC at {pdsc_path}: {exc}",
+                    pdsc_path=str(pdsc_path),
+                ) from exc
+            root = tree.getroot()
+            vendor_root = root.findtext("vendor") or ""
+            devices = root.find("devices")
+            if devices is None:
+                continue
+            for family in devices.findall("family"):
+                family_name = family.attrib.get("Dfamily", "")
+                family_vendor = family.attrib.get("Dvendor", vendor_root)
+                # Dvendor often has form "STMicroelectronics:13" — strip the suffix.
+                family_vendor_clean = family_vendor.split(":", 1)[0]
+                for device in family.iter("device"):
+                    orig_name = device.attrib.get("Dname", "")
+                    if not orig_name:
+                        continue
+                    name_lower = orig_name.lower()
+                    if (
+                        q in name_lower
+                        or q in family_name.lower()
+                        or q in family_vendor_clean.lower()
+                    ):
+                        matches.append(
+                            TargetInfo(
+                                name=orig_name,
+                                vendor=family_vendor_clean,
+                                part_number=orig_name,
+                                part_families=[family_name] if family_name else [],
+                                source="local_pdsc",
+                                pdsc_path=pdsc_path,
+                            )
+                        )
+        return matches
+
     def target_suggest(
         self,
         query: str,
@@ -333,9 +619,32 @@ class BrokerCore:
         Pass pack= (same path as session_start) to include targets from a
         locally-mounted CMSIS pack that may not be in the global pack cache.
         Does not require an active session.
+
+        Local-PDSC bypass: when ``pack`` points at a directory containing a
+        ``.pdsc`` file, the global pyOCD pack cache is skipped entirely and
+        the PDSC ``<devices>`` block is parsed directly. This survives a
+        poisoned global pack-index cache (PackIndexCorruptError mode).
         """
         if pack is None:
             pack = self._config.default_pack
+
+        if pack is not None:
+            pack_path = Path(pack)
+            if pack_path.is_dir():
+                matches = self._parse_local_pdsc_targets(pack_path, query)
+                if matches:
+                    self._log_op(
+                        "target_suggest",
+                        payload={
+                            "query": query,
+                            "count": len(matches),
+                            "source": "local_pdsc",
+                        },
+                    )
+                    return TargetSuggestResult(
+                        targets=matches, query=query, pack=pack
+                    )
+
         args = [self._config.pyocd_bin, "json", "--targets"]
         if pack is not None:
             args.extend(["--pack", pack])
@@ -344,10 +653,16 @@ class BrokerCore:
         )
         if result.returncode != 0:
             detail = (result.stderr or result.stdout or "").strip()
+            self._raise_if_pack_corrupt(
+                result.stderr or "", result.stdout or ""
+            )
             raise RuntimeError(f"pyocd json --targets failed: {detail}")
+        self._raise_if_pack_corrupt(
+            result.stderr or "", result.stdout or ""
+        )
         data: Any = json.loads(result.stdout)
         q = query.lower()
-        matches: list[TargetInfo] = []
+        matches = []
         for t in data.get("targets", []):
             name = str(t.get("name", ""))
             part_number = str(t.get("part_number", ""))
@@ -378,7 +693,8 @@ class BrokerCore:
 
         Returns the raw pyocd pack find output so the caller can read pack
         names and versions. Call pack_update first if the index is stale.
-        Does not require an active session.
+        Does not require an active session. Raises PackIndexCorruptError
+        when the pack index is unreadable.
         """
         result: Any = self._subprocess_run(
             [self._config.pyocd_bin, "pack", "find", query],
@@ -386,6 +702,7 @@ class BrokerCore:
             text=True,
             check=False,
         )
+        self._raise_if_pack_corrupt(result.stderr or "", result.stdout or "")
         output = (result.stdout or result.stderr or "").strip()
         self._log_op("pack_search", payload={"query": query})
         return PackSearchResult(query=query, output=output)
@@ -393,11 +710,19 @@ class BrokerCore:
     def pack_install(self, pack: str) -> PackInstallResult:
         """Install a CMSIS pack by name into the pack cache.
 
-        Run pack_search first to confirm the exact pack name. Installation
-        writes to CMSIS_PACK_ROOT (mounted persistent volume in container).
-        Does not require an active session. May take 30–120 s on first install.
-        No subprocess timeout is set intentionally — pack downloads vary widely
-        in size and network conditions.
+        ``pack`` is the identifier as understood by pyOCD's pack manager.
+        Both ``Vendor.PackName`` (e.g. ``Keil.STM32G4xx_DFP``) and
+        part-number patterns (e.g. ``stm32g4``, which installs every pack
+        whose devices match) are accepted. When in doubt, call
+        ``pack_search`` first — the rows it emits are authoritative
+        identifiers that ``pack_install`` will accept verbatim.
+
+        Installation writes to CMSIS_PACK_ROOT (mounted persistent volume
+        in container). Does not require an active session. May take
+        30–120 s on first install. No subprocess timeout is set
+        intentionally — pack downloads vary widely in size and network
+        conditions. Raises PackIndexCorruptError when the pack index is
+        unreadable.
         """
         result: Any = self._subprocess_run(
             [self._config.pyocd_bin, "pack", "install", pack],
@@ -405,6 +730,7 @@ class BrokerCore:
             text=True,
             check=False,
         )
+        self._raise_if_pack_corrupt(result.stderr or "", result.stdout or "")
         ok = result.returncode == 0
         output = (result.stdout or result.stderr or "").strip()
         self._log_op("pack_install", payload={"pack": pack, "ok": ok})
@@ -415,6 +741,7 @@ class BrokerCore:
 
         Call this once after container setup, or when pack_search returns no
         results for a known MCU family. Does not require an active session.
+        Raises PackIndexCorruptError when the index is unreadable mid-update.
         """
         result: Any = self._subprocess_run(
             [self._config.pyocd_bin, "pack", "update"],
@@ -422,10 +749,57 @@ class BrokerCore:
             text=True,
             check=False,
         )
+        self._raise_if_pack_corrupt(result.stderr or "", result.stdout or "")
         ok = result.returncode == 0
         output = (result.stdout or result.stderr or "").strip()
         self._log_op("pack_update", payload={"ok": ok})
         return PackUpdateResult(ok=ok, output=output)
+
+    def pack_cache_reset(self) -> PackCacheResetResult:
+        """Remove the pyOCD pack-index cache and rebuild it.
+
+        Opt-in recovery for PackIndexCorruptError. Deletes every file under
+        ``BrokerConfig.pyocd_pack_index_dir`` and then re-runs
+        ``pyocd pack update``. Never called from any happy path. Does not
+        require an active session.
+
+        Caveat: pyOCD's pack cache is process-global (per ``$HOME``); this
+        method touches global state shared with any other tooling using the
+        same ``~/.pyocd``.
+        """
+        t0 = time.monotonic()
+        index_dir = Path(self._config.pyocd_pack_index_dir)
+        removed: list[Path] = []
+        if index_dir.is_dir():
+            for entry in sorted(index_dir.iterdir()):
+                if entry.is_file():
+                    entry.unlink()
+                    removed.append(entry)
+        # Call pyOCD directly instead of self.pack_update(): the corruption
+        # detector would re-raise on the very output we are trying to fix.
+        result: Any = self._subprocess_run(
+            [self._config.pyocd_bin, "pack", "update"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        rebuilt = result.returncode == 0
+        output = (result.stdout or result.stderr or "").strip()
+        duration_ms = int((time.monotonic() - t0) * 1000)
+        self._log_op(
+            "pack_cache_reset",
+            payload={
+                "removed_count": len(removed),
+                "rebuilt": rebuilt,
+                "duration_ms": duration_ms,
+            },
+        )
+        return PackCacheResetResult(
+            removed=removed,
+            rebuilt=rebuilt,
+            duration_ms=duration_ms,
+            output=output,
+        )
 
     def session_start(self, **profile_kwargs: object) -> SessionStatus:
         result = self._sessions.start(**profile_kwargs)

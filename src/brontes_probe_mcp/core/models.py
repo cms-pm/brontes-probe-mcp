@@ -21,6 +21,8 @@ class ProbeState(BaseModel):
     resumed: bool | None = None
     reset: bool | None = None
     halted_after: bool | None = None
+    reset_command_echo: str | None = None
+    reset_cause_hint: str | None = None
 
 
 class MemReadResult(BaseModel):
@@ -34,6 +36,9 @@ class BlackboxExportResult(BaseModel):
     out: Path = Path("/dev/null")
     bytes_written: int = 0
     snapshot_at: datetime = datetime.min
+    resolved_addr: int | None = None
+    resolved_length: int | None = None
+    resolved_from_region: str | None = None
 
 
 class ItmStreamHandle(BaseModel):
@@ -43,6 +48,19 @@ class ItmStreamHandle(BaseModel):
 
 class ItmStreamSummary(BaseModel):
     stopped: bool = False
+    bytes_captured: int = 0
+    packet_count: int = 0
+    overflow_count: int = 0
+    artifact_path: Path | None = None
+
+
+class ItmStreamExport(BaseModel):
+    raw_artifact_path: Path = Path("/dev/null")
+    decoded_artifact_path: Path | None = None
+    bytes_written: int = 0
+    packet_count: int = 0
+    cpu_clock_hz: int | None = None
+    trace_clock_hz: int | None = None
 
 
 class LaneStatus(BaseModel):
@@ -88,6 +106,7 @@ class TargetInfo(BaseModel):
     part_number: str = ""
     part_families: list[str] = []
     source: str = ""
+    pdsc_path: Path | None = None
 
 
 class TargetSuggestResult(BaseModel):
@@ -109,4 +128,11 @@ class PackInstallResult(BaseModel):
 
 class PackUpdateResult(BaseModel):
     ok: bool = False
+    output: str = ""
+
+
+class PackCacheResetResult(BaseModel):
+    removed: list[Path] = []
+    rebuilt: bool = False
+    duration_ms: int = 0
     output: str = ""

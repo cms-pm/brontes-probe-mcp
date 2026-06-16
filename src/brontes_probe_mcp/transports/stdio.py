@@ -11,6 +11,7 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 
 from brontes_probe_mcp.core.broker import BrokerCore, SessionRequiredError
+from brontes_probe_mcp.core.errors import PackIndexCorruptError, PackParseError
 from brontes_probe_mcp.transports import _rpc
 
 _TOOLS: list[types.Tool] = [
@@ -141,11 +142,29 @@ _TOOLS: list[types.Tool] = [
     ),
     types.Tool(
         name="probe_reset",
-        description="Reset the target device",
+        description=(
+            "Reset the target device. Kind catalog: 'soft' (vector reset, "
+            "debug domain preserved), 'hard' (SRST line, full chip), 'sw' "
+            "(SYSRESETREQ via AIRCR; on STM32G4 yields SRON-style boot "
+            "outcome), 'system' (NVIC system reset), 'core' (core only, "
+            "peripherals retain state), 'backend_default' (whatever the "
+            "backend's default reset does). Watchdog caveat: 'hard' and "
+            "'sw' reset the debug domain and may mask IWDG-induced resets."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
-                "kind": {"type": "string", "enum": ["soft", "hard"]},
+                "kind": {
+                    "type": "string",
+                    "enum": [
+                        "soft",
+                        "hard",
+                        "sw",
+                        "system",
+                        "core",
+                        "backend_default",
+                    ],
+                },
                 "halt_after": {"type": "boolean"},
             },
         },
@@ -165,11 +184,21 @@ _TOOLS: list[types.Tool] = [
     ),
     types.Tool(
         name="probe_blackbox_export",
-        description="Export a blackbox snapshot",
+        description=(
+            "Export a binary memory snapshot. Supply exactly one range form: "
+            "(start_addr, end_addr) half-open, (addr, length), or a named "
+            "region from the advisory registry (e.g. 'sram_blackbox'). "
+            "There is no default range — calling without a range raises an error."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
                 "out": {"type": "string"},
+                "start_addr": {"type": "integer"},
+                "end_addr": {"type": "integer"},
+                "addr": {"type": "integer"},
+                "length": {"type": "integer"},
+                "region": {"type": "string"},
             },
             "required": ["out"],
         },
@@ -191,6 +220,24 @@ _TOOLS: list[types.Tool] = [
         name="itm_stream_stop",
         description="Stop ITM/SWO trace streaming",
         inputSchema={"type": "object", "properties": {}},
+    ),
+    types.Tool(
+        name="itm_stream_export",
+        description=(
+            "Snapshot the ITM/SWO ring buffer to disk. Writes raw bytes to "
+            "'<out>.raw.bin' and (when decode=true) JSON-Lines decoded SWIT "
+            "packets to '<out>.decoded.jsonl'. Safe to call while a stream "
+            "is active; safe to call multiple times. Decoded records carry "
+            "{port, timestamp_us, data_hex}."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "out": {"type": "string"},
+                "decode": {"type": "boolean"},
+            },
+            "required": ["out"],
+        },
     ),
     types.Tool(
         name="lane_status",
@@ -278,6 +325,16 @@ _TOOLS: list[types.Tool] = [
         ),
         inputSchema={"type": "object", "properties": {}},
     ),
+    types.Tool(
+        name="pack_cache_reset",
+        description=(
+            "Recover from a corrupt pyOCD pack index. Removes every file "
+            "under the pack-index directory and re-runs 'pyocd pack update'. "
+            "Opt-in recovery; never called from any happy path. Touches "
+            "global ~/.pyocd state. Does not require an active session."
+        ),
+        inputSchema={"type": "object", "properties": {}},
+    ),
 ]
 
 # Map stdio tool names → broker method names
@@ -296,6 +353,7 @@ _STDIO_TO_BROKER: dict[str, str] = {
     "probe_blackbox_export": "blackbox_export",
     "itm_stream_start": "itm_stream_start",
     "itm_stream_stop": "itm_stream_stop",
+    "itm_stream_export": "itm_stream_export",
     "lane_status": "lane_status",
     "lane_release": "lane_release",
     "lane_resume": "lane_resume",
@@ -303,6 +361,7 @@ _STDIO_TO_BROKER: dict[str, str] = {
     "pack_search": "pack_search",
     "pack_install": "pack_install",
     "pack_update": "pack_update",
+    "pack_cache_reset": "pack_cache_reset",
 }
 
 # Path-coercion: tool name → kwarg keys that need Path conversion
@@ -310,6 +369,7 @@ _PATH_TOOL_KWARGS: dict[str, frozenset[str]] = {
     "probe_program": frozenset({"artifact"}),
     "probe_flash": frozenset({"artifact"}),
     "probe_blackbox_export": frozenset({"out"}),
+    "itm_stream_export": frozenset({"out"}),
 }
 
 
@@ -344,6 +404,25 @@ async def _call_handler(
             result = fn(**kwargs)
         except SessionRequiredError as exc:
             return _rpc.error_response("session_required", str(exc))
+        except PackIndexCorruptError as exc:
+            return _rpc.error_response(
+                "pack_index_corrupt",
+                str(exc),
+                details={
+                    "cause_class": exc.cause_class,
+                    "cause_message": exc.cause_message,
+                    "index_path_hint": exc.index_path_hint,
+                    "remediation": exc.remediation,
+                },
+            )
+        except PackParseError as exc:
+            return _rpc.error_response(
+                "pack_parse_error",
+                str(exc),
+                details={"pdsc_path": exc.pdsc_path},
+            )
+        except (ValueError, TypeError) as exc:
+            return _rpc.error_response("invalid_kwargs", str(exc))
 
         if broker_method == "recent_lines":
             lines = result if isinstance(result, list) else []
