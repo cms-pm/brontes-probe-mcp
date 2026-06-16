@@ -241,6 +241,7 @@ class SessionManager:
                         protocol_version=_PROTOCOL_VERSION,
                         state="unhealthy",
                         target=target,
+                        session_id=session_id,
                     )
                 meta: dict[str, Any] = {
                     "backend": backend,
@@ -305,6 +306,7 @@ class SessionManager:
                         protocol_version=_PROTOCOL_VERSION,
                         state="unhealthy",
                         target=target,
+                        session_id=session_id,
                     )
 
         # Brief pause after releasing the lock: pyocd briefly closes its listen

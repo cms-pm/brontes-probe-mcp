@@ -47,11 +47,15 @@ def broker(tmp_path: Path) -> BrokerCore:
 
 
 class _FakeWriteFile:
-    """Writes raise BrokenPipeError on the second call to mimic peer hangup."""
+    """Mimic a peer hangup: raise BrokenPipeError after N successful writes.
 
-    def __init__(self, raise_after: int = 0) -> None:
+    ``raise_after_n_writes=0`` raises on the first ``write()`` call;
+    ``=1`` accepts one write then raises on the second; etc.
+    """
+
+    def __init__(self, raise_after_n_writes: int = 0) -> None:
         self._writes = 0
-        self._raise_after = raise_after
+        self._raise_after = raise_after_n_writes
         self.flushed = 0
         self.written: list[bytes] = []
 
@@ -83,7 +87,7 @@ def test_socket_handler_swallows_brokenpipe_on_write(
     broker: BrokerCore, caplog: pytest.LogCaptureFixture
 ) -> None:
     rfile = BytesIO(b'{"method":"halt","kwargs":{}}\n')
-    wfile = _FakeWriteFile(raise_after=0)
+    wfile = _FakeWriteFile(raise_after_n_writes=0)
     handler = _make_socket_handler(broker, rfile, wfile)
     with caplog.at_level(logging.DEBUG, logger="brontes_probe_mcp.transports.socket"):
         handler.handle()  # must not raise
@@ -109,7 +113,7 @@ def test_tcp_handler_swallows_brokenpipe(
     broker: BrokerCore, caplog: pytest.LogCaptureFixture
 ) -> None:
     rfile = BytesIO(b"tok\n" + b'{"method":"halt","kwargs":{}}\n')
-    wfile = _FakeWriteFile(raise_after=0)
+    wfile = _FakeWriteFile(raise_after_n_writes=0)
     handler = _TcpRequestHandler.__new__(_TcpRequestHandler)
     handler.server = MagicMock()
     handler.server.broker = broker
@@ -155,7 +159,9 @@ def test_unix_server_survives_client_rst(unix_server_running: str) -> None:
         s.connect(sock_path)
         s.sendall(b'{"method":"halt","kwargs":{}}\n')
         _force_rst_close(s)
-    time.sleep(0.1)
+    # 0.5s gives the threadpool comfortable room under CI load —
+    # RSTs are cheap, so the wall-time cost is invisible.
+    time.sleep(0.5)
     # Server still serves new connections.
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     s.settimeout(2.0)

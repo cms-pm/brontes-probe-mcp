@@ -503,6 +503,10 @@ class BrokerCore:
         skips the filter rather than matching entries whose own field
         is None.
         """
+        # Snapshot under the lock, then filter without it: LogLine is
+        # treated as immutable after _log_op appends it, so reading
+        # entry fields outside the lock is safe. Don't mutate LogLine
+        # entries in place anywhere; that invariant lives here.
         with self._audit_lock:
             lines = [e for e in self._audit if e.seq >= since_seq]
         if session_id is not None:
@@ -838,6 +842,10 @@ class BrokerCore:
     def session_stop(self, force: bool = False) -> SessionStatus:
         result = self._sessions.stop(force=force)
         self._session_state = "stopped"
+        # In-flight ops racing with stop may still stamp with the prior id
+        # (read of self._session_id in _log_op is atomic under the GIL but
+        # uncoordinated with this write). Acceptable for an audit log;
+        # noted here so future refactors don't assume strict ordering.
         self._session_id = None
         return result
 
