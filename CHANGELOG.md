@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.3.0] - 2026-06-15
+## [0.3.0] - 2026-06-16
 
 First-use hardening release. All seven items raised in the 0.2.2 ForgeVM
 retrospective (`artifacts/feedback/`) are addressed:

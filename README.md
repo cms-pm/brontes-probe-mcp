@@ -31,7 +31,7 @@ Session lifecycle, probe operations, ITM/SWO trace (raw + decoded export),
 CMSIS pack-cache recovery, and lane supervision over three concurrent
 transports (stdio MCP, Unix socket, loopback TCP). All seven first-adopter
 friction points from the 0.2.2 retrospective are addressed — see
-[CHANGELOG.md](https://github.com/cms-pm/brontes-probe-mcp/blob/main/CHANGELOG.md#030---2026-06-15).
+[CHANGELOG.md](https://github.com/cms-pm/brontes-probe-mcp/blob/main/CHANGELOG.md#030---2026-06-16).
 
 ## Quick start
 

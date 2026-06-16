@@ -158,7 +158,14 @@ def test_call_timeout_exits_1(capsys: pytest.CaptureFixture[str]) -> None:
 
 
 def test_call_truncated_reply_exits_1(capsys: pytest.CaptureFixture[str]) -> None:
-    """Server closes without a trailing newline → empty/truncated reply → exit 1."""
+    """Server closes without a trailing newline → exit 1.
+
+    Two valid outcomes:
+      - The send completes, recv returns b"", we hit the empty-reply branch.
+      - The server's close() races the client's send (typical on Linux),
+        so send/sendall raises ECONNRESET and we hit the OSError branch.
+    Either path produces exit 1; stderr distinguishes them.
+    """
     import socket as _sock
 
     with tempfile.TemporaryDirectory(dir="/tmp") as td:
@@ -169,7 +176,7 @@ def test_call_truncated_reply_exits_1(capsys: pytest.CaptureFixture[str]) -> Non
 
         def _accept_and_close() -> None:
             conn, _ = srv.accept()
-            conn.close()  # no reply at all → empty buf
+            conn.close()  # no reply at all
 
         t = threading.Thread(target=_accept_and_close, daemon=True)
         t.start()
@@ -181,7 +188,8 @@ def test_call_truncated_reply_exits_1(capsys: pytest.CaptureFixture[str]) -> Non
             with pytest.raises(SystemExit) as exc:
                 main()
             assert exc.value.code == 1
-            assert "empty reply" in capsys.readouterr().err
+            err = capsys.readouterr().err
+            assert "call failed" in err  # either "empty reply" or an OSError msg
         finally:
             srv.close()
             t.join(timeout=1)
