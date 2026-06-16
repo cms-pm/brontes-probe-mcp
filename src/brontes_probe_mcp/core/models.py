@@ -76,6 +76,7 @@ class LogLine(BaseModel):
     lane: str | None = None
     ok: bool = False
     payload: dict[str, Any] = {}
+    session_id: str | None = None
 
 
 class SessionStatus(BaseModel):
@@ -85,6 +86,7 @@ class SessionStatus(BaseModel):
     state: Literal["stopped", "healthy", "unhealthy", "stale", "unknown"] = "unknown"
     target: str | None = None
     probe_uid: str | None = None
+    session_id: str | None = None
 
 
 class ProbeInfo(BaseModel):

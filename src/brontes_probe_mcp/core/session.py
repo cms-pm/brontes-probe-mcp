@@ -7,6 +7,7 @@ import signal
 import socket
 import subprocess
 import time
+import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -233,6 +234,7 @@ class SessionManager:
                 self._stop_meta(existing)
                 self._remove_meta(profile)
 
+            session_id = uuid.uuid4().hex
             if external_agent:
                 if not self._tcp_ready(gdb_host, gdb_port):
                     return SessionStatus(
@@ -247,6 +249,7 @@ class SessionManager:
                     "started_epoch_s": time.time(),
                     "target": target,
                     "probe_uid": probe_uid,
+                    "session_id": session_id,
                 }
                 self._write_meta(meta, profile)
             else:
@@ -291,6 +294,7 @@ class SessionManager:
                     "started_epoch_s": time.time(),
                     "target": target,
                     "probe_uid": probe_uid,
+                    "session_id": session_id,
                 }
                 self._write_meta(meta, profile)
 
@@ -318,6 +322,7 @@ class SessionManager:
             state="healthy",
             target=target,
             probe_uid=probe_uid,
+            session_id=session_id,
         )
 
     def stop(self, force: bool = False, profile: str = _PROFILE) -> SessionStatus:
@@ -345,6 +350,7 @@ class SessionManager:
             )
         target_raw = meta.get("target")
         probe_raw = meta.get("probe_uid")
+        sid_raw = meta.get("session_id")
         return SessionStatus(
             protocol_version=_PROTOCOL_VERSION,
             image_tag=self._config.image_tag,
@@ -352,4 +358,5 @@ class SessionManager:
             state=self._derive_state(meta),
             target=str(target_raw) if target_raw is not None else None,
             probe_uid=str(probe_raw) if probe_raw is not None else None,
+            session_id=str(sid_raw) if sid_raw is not None else None,
         )

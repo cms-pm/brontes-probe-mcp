@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `LogLine.session_id` (additive, optional) — audit-log entries are now stamped
+  with the active session's UUID; entries logged outside an active session
+  (e.g. `probe_discover`) carry `session_id=None`.
+- `SessionStatus.session_id` — UUID generated at `session_start`, persisted
+  in the on-disk session meta and surfaced to clients via `session_status`.
+- `recent_lines` filters — `session_id`, `method`, and `lane` parameters
+  (AND-combined). Default behaviour (no filters) returns all entries from
+  `since_seq` onward, preserving back-compat.
+
+### Changed
+
+- Socket and TCP transport handlers now suppress `BrokenPipeError` and
+  `ConnectionResetError` from the per-connection loop, logging at DEBUG
+  via `logging.getLogger(__name__)` instead of escaping `socketserver`
+  as a traceback during graceful shutdown.
+
+### Added
+
 - `pack_cache_reset()` — broker method (and `pack_cache_reset` MCP tool) that
   removes every file under `BrokerConfig.pyocd_pack_index_dir` and re-runs
   `pyocd pack update`. Opt-in recovery for a corrupt CMSIS pack index;
