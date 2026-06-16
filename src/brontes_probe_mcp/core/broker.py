@@ -141,6 +141,7 @@ class BrokerCore:
         self._audit_lock = threading.Lock()
         self._seq = 0
         self._session_state: str = "stopped"
+        self._session_id: str | None = None
 
     def _log_op(
         self,
@@ -158,6 +159,7 @@ class BrokerCore:
                 lane=lane,
                 ok=ok,
                 payload=payload or {},
+                session_id=self._session_id,
             )
             self._audit.append(entry)
 
@@ -485,9 +487,30 @@ class BrokerCore:
         self._log_op("lane_resume", lane=lane, payload={"resumed": True})
         return result
 
-    def recent_lines(self, since_seq: int = 0, limit: int = 100) -> list[LogLine]:
+    def recent_lines(
+        self,
+        since_seq: int = 0,
+        limit: int = 100,
+        session_id: str | None = None,
+        method: str | None = None,
+        lane: str | None = None,
+    ) -> list[LogLine]:
+        """Return audit-log entries with optional AND-combined filters.
+
+        Default behaviour (no filters) returns the entire buffer from
+        ``since_seq`` onward, preserving back-compat. ``session_id``,
+        ``method``, and ``lane`` are exact-match filters; ``None``
+        skips the filter rather than matching entries whose own field
+        is None.
+        """
         with self._audit_lock:
             lines = [e for e in self._audit if e.seq >= since_seq]
+        if session_id is not None:
+            lines = [e for e in lines if e.session_id == session_id]
+        if method is not None:
+            lines = [e for e in lines if e.method == method]
+        if lane is not None:
+            lines = [e for e in lines if e.lane == lane]
         return lines[:limit]
 
     def probe_discover(self) -> ProbeDiscoverResult:
@@ -804,11 +827,18 @@ class BrokerCore:
     def session_start(self, **profile_kwargs: object) -> SessionStatus:
         result = self._sessions.start(**profile_kwargs)
         self._session_state = result.state
+        # session_id only stamps audit entries while a session is active.
+        # A failed start (state != "healthy") still gets a fresh id from
+        # SessionManager; we only adopt it when the session is usable.
+        self._session_id = (
+            result.session_id if result.state == "healthy" else None
+        )
         return result
 
     def session_stop(self, force: bool = False) -> SessionStatus:
         result = self._sessions.stop(force=force)
         self._session_state = "stopped"
+        self._session_id = None
         return result
 
     def session_status(self) -> SessionStatus:

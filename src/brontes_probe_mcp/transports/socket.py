@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import socket as socket_module
 import socketserver
@@ -11,6 +12,8 @@ from typing import Any
 from brontes_probe_mcp.core.broker import BrokerCore
 from brontes_probe_mcp.core.config import BrokerConfig
 from brontes_probe_mcp.transports import _rpc
+
+_log = logging.getLogger(__name__)
 
 
 class _RequestHandler(socketserver.StreamRequestHandler):
@@ -29,26 +32,34 @@ class _RequestHandler(socketserver.StreamRequestHandler):
             except OSError:
                 pass
 
-        for raw_line in self.rfile:
-            line = raw_line.strip()
-            if not line:
-                continue
-            try:
-                payload: dict[str, Any] = json.loads(line)
-                method: str = str(payload.get("method", ""))
-                kwargs: dict[str, Any] = dict(payload.get("kwargs", {}))
-                result = _rpc.dispatch(self.server.broker, method, kwargs)
-                response = _rpc.serialize(result)
-            except KeyError as exc:
-                response = _rpc.error_response(
-                    "method_unknown", str(exc), {}
-                )
-            except Exception as exc:
-                response = _rpc.error_response(
-                    "broker_internal_error", str(exc), {}
-                )
-            self.wfile.write((response + "\n").encode())
-            self.wfile.flush()
+        try:
+            for raw_line in self.rfile:
+                line = raw_line.strip()
+                if not line:
+                    continue
+                try:
+                    payload: dict[str, Any] = json.loads(line)
+                    method: str = str(payload.get("method", ""))
+                    kwargs: dict[str, Any] = dict(payload.get("kwargs", {}))
+                    result = _rpc.dispatch(self.server.broker, method, kwargs)
+                    response = _rpc.serialize(result)
+                except KeyError as exc:
+                    response = _rpc.error_response(
+                        "method_unknown", str(exc), {}
+                    )
+                except Exception as exc:
+                    response = _rpc.error_response(
+                        "broker_internal_error", str(exc), {}
+                    )
+                self.wfile.write((response + "\n").encode())
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError) as exc:
+            # Client went away mid-RPC. Common during graceful shutdown:
+            # the peer closes its read side before the broker can write
+            # back. Logged at DEBUG to avoid alarming output that survived
+            # 0.2.2 retrospectives.
+            _log.debug("socket client disconnected: %s", exc)
+            return
 
 
 class _UnixServer(socketserver.ThreadingUnixStreamServer):
