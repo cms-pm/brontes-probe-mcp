@@ -97,11 +97,16 @@ class ItmSwoLane:
         return ItmStreamHandle(ports=list(ports), trace_clock_hz=trace_clock_hz)
 
     def _reader_loop(self) -> None:
+        # Snapshot source under lock once; stop() replaces it with None after close.
         source = self._source
         if source is None:
             return
         while not self._stop_event.is_set():
-            chunk = source.read(4096)
+            try:
+                chunk = source.read(4096)
+            except (OSError, ValueError):
+                # Source closed mid-read by stop(); exit cleanly.
+                return
             if not chunk:
                 continue
             with self._lock:
@@ -113,15 +118,18 @@ class ItmSwoLane:
                     del self._buffer[:excess]
 
     def stop(self) -> ItmStreamSummary:
+        # Order matters: close source first so a blocking read() in the reader
+        # thread unblocks (real sockets ignore the stop_event until a read
+        # returns). Then signal and join.
         with self._lock:
             self._active = False
-            self._stop_event.set()
+            source = self._source
+        if source is not None:
+            source.close()
+        self._stop_event.set()
         thread = self._reader_thread
         if thread is not None:
             thread.join(timeout=1.0)
-        source = self._source
-        if source is not None:
-            source.close()
         with self._lock:
             buf = bytes(self._buffer)
             bytes_captured = self._bytes_captured

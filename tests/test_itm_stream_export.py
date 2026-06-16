@@ -18,7 +18,7 @@ import pytest
 
 from brontes_probe_mcp.core.broker import BrokerCore
 from brontes_probe_mcp.core.config import BrokerConfig
-from brontes_probe_mcp.core.itm import SwoSource, decode_software_packets
+from brontes_probe_mcp.core.itm import decode_software_packets
 from brontes_probe_mcp.core.lanes import ItmSwoLane
 from brontes_probe_mcp.core.models import ItmStreamExport, ItmStreamSummary
 

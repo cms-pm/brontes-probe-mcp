@@ -62,6 +62,39 @@ _PACK_CORRUPT_SIGNATURES: tuple[str, ...] = (
     "Expecting value:",
 )
 
+# GDB --batch preamble lines to skip when extracting a reset cause hint.
+_GDB_PREAMBLE_PREFIXES: tuple[str, ...] = (
+    "Reading symbols",
+    "Remote debugging using",
+    "warning:",
+    "GNU gdb",
+    "Copyright",
+    "License GPLv3",
+    "This GDB was configured",
+    "Type \"apropos",
+    "For bug reporting",
+    "(No debugging symbols",
+)
+
+
+def _extract_reset_cause(stdout: str, stderr: str) -> str | None:
+    """Pick the most informative non-preamble line from GDB output.
+
+    Prefers stderr (where pyOCD's reset diagnostics typically land),
+    falling back to stdout. Skips GDB's --batch boilerplate.
+    """
+    for source in (stderr, stdout):
+        for line in source.splitlines():
+            s = line.strip()
+            if not s:
+                continue
+            if s.startswith(_GDB_PREAMBLE_PREFIXES):
+                continue
+            if " in ?? ()" in s:
+                continue
+            return s[:200]
+    return None
+
 
 class SessionRequiredError(RuntimeError):
     """Raised when a probe operation is attempted without a healthy session."""
@@ -135,7 +168,10 @@ class BrokerCore:
                 "call session_start first"
             )
 
-    def _run_gdb(self, commands: list[str], symbol_file: Path | None = None) -> str:
+    def _exec_gdb(
+        self, commands: list[str], symbol_file: Path | None = None
+    ) -> tuple[str, str]:
+        """Run GDB --batch; return (stdout, stderr). Raises on nonzero exit."""
         args: list[str] = [
             self._config.gdb_bin,
             "--batch",
@@ -155,7 +191,11 @@ class BrokerCore:
             raise RuntimeError(
                 f"GDB exited {result.returncode}: {detail or '(no output)'}"
             )
-        return str(result.stdout)
+        return str(result.stdout), str(result.stderr or "")
+
+    def _run_gdb(self, commands: list[str], symbol_file: Path | None = None) -> str:
+        stdout, _ = self._exec_gdb(commands, symbol_file=symbol_file)
+        return stdout
 
     def program(
         self,
@@ -238,14 +278,8 @@ class BrokerCore:
         cmds = [cmd]
         if halt_after:
             cmds.append("monitor halt")
-        output = self._run_gdb(cmds)
-        cause_hint: str | None = None
-        if output:
-            first = next(
-                (ln.strip() for ln in output.splitlines() if ln.strip()), None
-            )
-            if first:
-                cause_hint = first[:200]
+        stdout, stderr = self._exec_gdb(cmds)
+        cause_hint = _extract_reset_cause(stdout, stderr)
         self._log_op(
             "reset",
             payload={
@@ -499,67 +533,79 @@ class BrokerCore:
         in stderr (or stdout — pyOCD streams the traceback to either).
         """
         combined = f"{stderr}\n{stdout}"
-        if any(sig in combined for sig in _PACK_CORRUPT_SIGNATURES):
-            cause_message = stderr.strip() or stdout.strip()
-            raise PackIndexCorruptError(
-                "pyOCD pack index appears corrupt; run pack_cache_reset",
-                cause_class="json.JSONDecodeError",
-                cause_message=cause_message[:1000],
-                index_path_hint=self._config.pyocd_pack_index_dir,
-            )
+        matched = next(
+            (sig for sig in _PACK_CORRUPT_SIGNATURES if sig in combined), None
+        )
+        if matched is None:
+            return
+        # Derive a best-effort cause_class from whichever signature fired;
+        # all three are subclasses/messages of json.JSONDecodeError in practice.
+        cause_class = (
+            "json.JSONDecodeError" if matched == "JSONDecodeError"
+            else f"json.JSONDecodeError ({matched.rstrip(':')})"
+        )
+        cause_message = stderr.strip() or stdout.strip()
+        raise PackIndexCorruptError(
+            "pyOCD pack index appears corrupt; run pack_cache_reset",
+            cause_class=cause_class,
+            cause_message=cause_message[:1000],
+            index_path_hint=self._config.pyocd_pack_index_dir,
+        )
 
     def _parse_local_pdsc_targets(
         self, pdsc_dir: Path, query: str
     ) -> list[TargetInfo]:
-        """Parse the first .pdsc file in pdsc_dir, return matching devices.
+        """Parse every .pdsc file in pdsc_dir; return matching devices.
 
-        Raises PackParseError on a malformed PDSC; returns an empty list
-        when the directory has no .pdsc file.
+        Raises PackParseError on the first malformed PDSC encountered;
+        returns an empty list when the directory has no .pdsc files.
+        Iterates sorted file order for deterministic results across runs.
         """
         import xml.etree.ElementTree as ET
 
         pdsc_files = sorted(pdsc_dir.glob("*.pdsc"))
         if not pdsc_files:
             return []
-        pdsc_path = pdsc_files[0]
-        try:
-            tree = ET.parse(pdsc_path)
-        except ET.ParseError as exc:
-            raise PackParseError(
-                f"failed to parse PDSC at {pdsc_path}: {exc}",
-                pdsc_path=str(pdsc_path),
-            ) from exc
-        root = tree.getroot()
-        vendor_root = root.findtext("vendor") or ""
         q = query.lower()
         matches: list[TargetInfo] = []
-        devices = root.find("devices")
-        if devices is None:
-            return []
-        for family in devices.findall("family"):
-            family_name = family.attrib.get("Dfamily", "")
-            family_vendor = family.attrib.get("Dvendor", vendor_root)
-            # Dvendor often has form "STMicroelectronics:13" — strip the suffix.
-            family_vendor_clean = family_vendor.split(":", 1)[0]
-            for device in family.iter("device"):
-                name = device.attrib.get("Dname", "").lower()
-                if not name:
-                    continue
-                if (
-                    q in name
-                    or q in family_name.lower()
-                    or q in family_vendor_clean.lower()
-                ):
-                    matches.append(
-                        TargetInfo(
-                            name=name,
-                            vendor=family_vendor_clean,
-                            part_number=device.attrib.get("Dname", ""),
-                            part_families=[family_name] if family_name else [],
-                            source="local_pdsc",
-                            pdsc_path=pdsc_path,
+        for pdsc_path in pdsc_files:
+            try:
+                tree = ET.parse(pdsc_path)
+            except ET.ParseError as exc:
+                raise PackParseError(
+                    f"failed to parse PDSC at {pdsc_path}: {exc}",
+                    pdsc_path=str(pdsc_path),
+                ) from exc
+            root = tree.getroot()
+            vendor_root = root.findtext("vendor") or ""
+            devices = root.find("devices")
+            if devices is None:
+                continue
+            for family in devices.findall("family"):
+                family_name = family.attrib.get("Dfamily", "")
+                family_vendor = family.attrib.get("Dvendor", vendor_root)
+                # Dvendor often has form "STMicroelectronics:13" — strip the suffix.
+                family_vendor_clean = family_vendor.split(":", 1)[0]
+                for device in family.iter("device"):
+                    orig_name = device.attrib.get("Dname", "")
+                    if not orig_name:
+                        continue
+                    name_lower = orig_name.lower()
+                    if (
+                        q in name_lower
+                        or q in family_name.lower()
+                        or q in family_vendor_clean.lower()
+                    ):
+                        matches.append(
+                            TargetInfo(
+                                name=orig_name,
+                                vendor=family_vendor_clean,
+                                part_number=orig_name,
+                                part_families=[family_name] if family_name else [],
+                                source="local_pdsc",
+                                pdsc_path=pdsc_path,
+                            )
                         )
-                    )
         return matches
 
     def target_suggest(
@@ -664,14 +710,19 @@ class BrokerCore:
     def pack_install(self, pack: str) -> PackInstallResult:
         """Install a CMSIS pack by name into the pack cache.
 
-        ``pack`` accepts pyOCD's standard pack-name shape, which is
-        ``Vendor.PackName`` (for example, ``Keil.STM32G4xx_DFP``).
-        Run pack_search first to confirm the exact pack name. Installation
-        writes to CMSIS_PACK_ROOT (mounted persistent volume in container).
-        Does not require an active session. May take 30–120 s on first install.
-        No subprocess timeout is set intentionally — pack downloads vary widely
-        in size and network conditions. Raises PackIndexCorruptError when the
-        pack index is unreadable.
+        ``pack`` is the identifier as understood by pyOCD's pack manager.
+        Both ``Vendor.PackName`` (e.g. ``Keil.STM32G4xx_DFP``) and
+        part-number patterns (e.g. ``stm32g4``, which installs every pack
+        whose devices match) are accepted. When in doubt, call
+        ``pack_search`` first — the rows it emits are authoritative
+        identifiers that ``pack_install`` will accept verbatim.
+
+        Installation writes to CMSIS_PACK_ROOT (mounted persistent volume
+        in container). Does not require an active session. May take
+        30–120 s on first install. No subprocess timeout is set
+        intentionally — pack downloads vary widely in size and network
+        conditions. Raises PackIndexCorruptError when the pack index is
+        unreadable.
         """
         result: Any = self._subprocess_run(
             [self._config.pyocd_bin, "pack", "install", pack],
@@ -724,6 +775,8 @@ class BrokerCore:
                 if entry.is_file():
                     entry.unlink()
                     removed.append(entry)
+        # Call pyOCD directly instead of self.pack_update(): the corruption
+        # detector would re-raise on the very output we are trying to fix.
         result: Any = self._subprocess_run(
             [self._config.pyocd_bin, "pack", "update"],
             capture_output=True,
