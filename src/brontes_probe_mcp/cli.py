@@ -80,6 +80,59 @@ def _cmd_probe_agent_stop(args: argparse.Namespace) -> None:
     print(json.dumps({"state": result.state}))
 
 
+def _cmd_call(args: argparse.Namespace) -> None:
+    """Send one JSON-RPC envelope over the Unix socket transport and print the reply.
+
+    Exit code 0 on a non-error response, 1 on an error envelope or transport
+    failure, 2 on invalid `--json` input.
+    """
+    import socket as _socket
+
+    config = BrokerConfig()
+    sock_path = args.socket or config.socket_path
+
+    if args.json:
+        try:
+            parsed_kwargs = json.loads(args.json)
+        except json.JSONDecodeError as exc:
+            print(f"Invalid --json payload: {exc}", file=sys.stderr)
+            sys.exit(2)
+        if not isinstance(parsed_kwargs, dict):
+            print("--json must decode to a JSON object", file=sys.stderr)
+            sys.exit(2)
+        kwargs: dict[str, object] = parsed_kwargs
+    else:
+        kwargs = {}
+
+    envelope = json.dumps({"method": args.method, "kwargs": kwargs})
+
+    try:
+        with _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM) as s:
+            s.settimeout(args.timeout)
+            s.connect(sock_path)
+            s.sendall((envelope + "\n").encode())
+            buf = bytearray()
+            while not buf.endswith(b"\n"):
+                chunk = s.recv(4096)
+                if not chunk:
+                    break
+                buf.extend(chunk)
+    except OSError as exc:
+        print(f"call failed: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    response = buf.decode(errors="replace").strip()
+    print(response)
+
+    try:
+        parsed = json.loads(response) if response else None
+    except json.JSONDecodeError:
+        sys.exit(1)
+
+    if isinstance(parsed, dict) and "error" in parsed:
+        sys.exit(1)
+
+
 def _cmd_probe_agent_status(args: argparse.Namespace) -> None:
     from brontes_probe_mcp.core.session import SessionManager
 
@@ -120,6 +173,36 @@ def main() -> None:
     subparsers.add_parser(
         "session-unlock",
         help="Force-remove a stale session operation lock",
+    )
+
+    # ── call subcommand (generic RPC envelope) ────────────────────────────────
+    call_parser = subparsers.add_parser(
+        "call",
+        help="Send one JSON-RPC envelope to a running broker over Unix socket",
+    )
+    call_parser.add_argument(
+        "method",
+        help="Broker method name (e.g. session_status, halt, mem_read)",
+    )
+    call_parser.add_argument(
+        "--json",
+        dest="json",
+        default=None,
+        metavar="STR",
+        help='kwargs as a JSON object string (e.g. \'{"addr":536870912,"length":4}\')',
+    )
+    call_parser.add_argument(
+        "--socket",
+        default=None,
+        metavar="PATH",
+        help="Override socket path (default: BrokerConfig.socket_path)",
+    )
+    call_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=10.0,
+        metavar="SEC",
+        help="Connect/recv timeout in seconds (default: 10.0)",
     )
 
     # ── probe-agent subcommand ─────────────────────────────────────────────────
@@ -193,6 +276,10 @@ def main() -> None:
             print(f"Removed stale lock: {lock_path}")
         else:
             print(f"No lock file at {lock_path}")
+        return
+
+    if args.command == "call":
+        _cmd_call(args)
         return
 
     if args.command == "probe-agent":

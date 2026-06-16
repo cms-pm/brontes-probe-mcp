@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `brontes-probe-mcp-cli call <method> [--json '{...}'] [--socket PATH]
+  [--timeout SEC]` — generic one-shot JSON-RPC client. Opens a short-lived
+  connection to the running Unix-socket transport, sends one envelope,
+  prints the reply on stdout, and exits. Exit codes: `0` on success,
+  `1` on transport failure or `{"error": ...}` envelope, `2` on invalid
+  `--json` input. Default socket path follows `BrokerConfig.socket_path`
+  (i.e. `PROBE_BROKER_SOCKET_PATH`).
 - `LogLine.session_id` (additive, optional) — audit-log entries are now stamped
   with the active session's UUID; entries logged outside an active session
   (e.g. `probe_discover`) carry `session_id=None`.
