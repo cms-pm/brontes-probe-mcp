@@ -7,7 +7,7 @@ from importlib.metadata import version
 def test_package_version() -> None:
     import brontes_probe_mcp
 
-    assert brontes_probe_mcp.__version__ == "0.2.2"
+    assert brontes_probe_mcp.__version__ == "0.3.0"
     assert brontes_probe_mcp.__protocol_version__ == "0.1.0"
 
 

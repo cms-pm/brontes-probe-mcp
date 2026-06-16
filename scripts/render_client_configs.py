@@ -27,7 +27,7 @@ END_MARKER = "<!-- END client-configs -->"
 
 DEFAULT_VARS: dict[str, str] = {
     "image_digest": "sha256:61e4d0423085ac734a938b2a45a984e5197e1803326547f5d13d519e67798e91",
-    "image_tag": "0.2.2",
+    "image_tag": "0.3.0",
     "container_name": "brontes-probe-mcp",
     "transports": "stdio,socket",
 }
