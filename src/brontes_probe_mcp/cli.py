@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import socket
 import subprocess
 import sys
 from pathlib import Path
@@ -83,14 +84,17 @@ def _cmd_probe_agent_stop(args: argparse.Namespace) -> None:
 def _cmd_call(args: argparse.Namespace) -> None:
     """Send one JSON-RPC envelope over the Unix socket transport and print the reply.
 
-    Exit code 0 on a non-error response, 1 on an error envelope or transport
-    failure, 2 on invalid `--json` input.
-    """
-    import socket as _socket
+    Exit code 0 on a non-error response, 1 on an error envelope, transport
+    failure, or truncated/empty reply, 2 on invalid `--json` input.
 
+    The `--timeout` value is applied via `socket.settimeout()`, which bounds
+    each blocking call (connect, then each recv) individually rather than the
+    total wall time of the call.
+    """
     config = BrokerConfig()
     sock_path = args.socket or config.socket_path
 
+    kwargs: dict[str, object] = {}
     if args.json:
         try:
             parsed_kwargs = json.loads(args.json)
@@ -100,18 +104,16 @@ def _cmd_call(args: argparse.Namespace) -> None:
         if not isinstance(parsed_kwargs, dict):
             print("--json must decode to a JSON object", file=sys.stderr)
             sys.exit(2)
-        kwargs: dict[str, object] = parsed_kwargs
-    else:
-        kwargs = {}
+        kwargs = parsed_kwargs
 
     envelope = json.dumps({"method": args.method, "kwargs": kwargs})
 
+    buf = bytearray()
     try:
-        with _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM) as s:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
             s.settimeout(args.timeout)
             s.connect(sock_path)
             s.sendall((envelope + "\n").encode())
-            buf = bytearray()
             while not buf.endswith(b"\n"):
                 chunk = s.recv(4096)
                 if not chunk:
@@ -122,10 +124,14 @@ def _cmd_call(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     response = buf.decode(errors="replace").strip()
+    if not response:
+        print("call failed: empty reply from broker", file=sys.stderr)
+        sys.exit(1)
+
     print(response)
 
     try:
-        parsed = json.loads(response) if response else None
+        parsed = json.loads(response)
     except json.JSONDecodeError:
         sys.exit(1)
 

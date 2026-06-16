@@ -123,6 +123,70 @@ def test_call_missing_socket_exits_1(
     assert "call failed" in capsys.readouterr().err
 
 
+def test_call_timeout_exits_1(capsys: pytest.CaptureFixture[str]) -> None:
+    """A socket that accepts but never replies should hit settimeout → exit 1."""
+    import socket as _sock
+
+    with tempfile.TemporaryDirectory(dir="/tmp") as td:
+        sock_path = str(Path(td) / "silent.sock")
+        srv = _sock.socket(_sock.AF_UNIX, _sock.SOCK_STREAM)
+        srv.bind(sock_path)
+        srv.listen(1)
+
+        accepted: list[Any] = []
+
+        def _accept_and_hold() -> None:
+            conn, _ = srv.accept()
+            accepted.append(conn)  # keep alive; never write back
+
+        t = threading.Thread(target=_accept_and_hold, daemon=True)
+        t.start()
+        try:
+            sys.argv = [
+                "brontes-probe-mcp-cli", "call", "session_status",
+                "--socket", sock_path, "--timeout", "0.2",
+            ]
+            with pytest.raises(SystemExit) as exc:
+                main()
+            assert exc.value.code == 1
+            assert "call failed" in capsys.readouterr().err
+        finally:
+            for c in accepted:
+                c.close()
+            srv.close()
+            t.join(timeout=1)
+
+
+def test_call_truncated_reply_exits_1(capsys: pytest.CaptureFixture[str]) -> None:
+    """Server closes without a trailing newline → empty/truncated reply → exit 1."""
+    import socket as _sock
+
+    with tempfile.TemporaryDirectory(dir="/tmp") as td:
+        sock_path = str(Path(td) / "truncated.sock")
+        srv = _sock.socket(_sock.AF_UNIX, _sock.SOCK_STREAM)
+        srv.bind(sock_path)
+        srv.listen(1)
+
+        def _accept_and_close() -> None:
+            conn, _ = srv.accept()
+            conn.close()  # no reply at all → empty buf
+
+        t = threading.Thread(target=_accept_and_close, daemon=True)
+        t.start()
+        try:
+            sys.argv = [
+                "brontes-probe-mcp-cli", "call", "session_status",
+                "--socket", sock_path, "--timeout", "2.0",
+            ]
+            with pytest.raises(SystemExit) as exc:
+                main()
+            assert exc.value.code == 1
+            assert "empty reply" in capsys.readouterr().err
+        finally:
+            srv.close()
+            t.join(timeout=1)
+
+
 def test_call_unknown_method_returns_error_exits_1(
     live_socket: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
