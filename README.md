@@ -26,9 +26,12 @@ A Model Context Protocol (MCP) server that gives AI assistants direct access
 to a debug probe — flash firmware, halt/resume, read memory, and stream ITM
 trace, all without leaving the conversation.
 
-**Status: 0.2.2 — fully operational.**
-Session lifecycle, probe operations, ITM/SWO trace, and lane supervision over
-three concurrent transports (stdio MCP, Unix socket, loopback TCP).
+**Status: 0.3.0 — first-use hardened.**
+Session lifecycle, probe operations, ITM/SWO trace (raw + decoded export),
+CMSIS pack-cache recovery, and lane supervision over three concurrent
+transports (stdio MCP, Unix socket, loopback TCP). All seven first-adopter
+friction points from the 0.2.2 retrospective are addressed — see
+[CHANGELOG.md](https://github.com/cms-pm/brontes-probe-mcp/blob/main/CHANGELOG.md#030---2026-06-16).
 
 ## Quick start
 
@@ -110,12 +113,26 @@ Then tell me to restart Claude Code to load the new server.
 
 #### pip install (no Docker, all platforms)
 
-Requires `arm-none-eabi-gdb` on `PATH` (install via your OS package manager
-or [ARM toolchain download](https://developer.arm.com/downloads/-/arm-gnu-toolchain-downloads)).
+**Pre-flight checks** — these three commands should succeed *before* you start
+the agent. They cover the friction points from real first-use:
 
 ```bash
+# 1. pip is available (bootstrap with ensurepip if your venv was created without it)
+python -m pip --version  ||  python -m ensurepip --upgrade
+
+# 2. arm-none-eabi-gdb is on PATH (install via your OS package manager or
+#    https://developer.arm.com/downloads/-/arm-gnu-toolchain-downloads)
+arm-none-eabi-gdb --version
+
+# 3. Install brontes-probe-mcp and confirm the console script is on PATH
 pip install brontes-probe-mcp
+brontes-probe-mcp-cli --version
 ```
+
+If `brontes-probe-mcp-cli` is not found, your shell's `PATH` doesn't include
+the directory `pip` wrote the script to. Either re-source your venv activate
+script (`source .venv/bin/activate`) or use `python -m brontes_probe_mcp` /
+`python -m brontes_probe_mcp.cli` directly.
 
 **Paste into Claude Code:**
 
@@ -168,32 +185,41 @@ the conversation:
 ```
 Call probe_discover to list connected debug probes. Use any board or chip
 information from the results to call target_suggest and find the pyocd
-target string. If target_suggest returns no matches, call pack_update to
-refresh the pack index, then pack_search to find the right CMSIS pack name,
-then pack_install (may take a minute), then retry target_suggest. Once you
-have the target string, call session_start — omit probe_uid if only one
-probe is connected, otherwise pass the uid from probe_discover.
+target string — pyocd usually wants the full subfamily/package suffix
+(for example "stm32g474ceux", not bare "stm32g474"). If target_suggest
+returns no matches, call pack_update to refresh the pack index, then
+pack_search to find the right CMSIS pack name, then pack_install (may
+take a minute), then retry target_suggest. If pack_search or pack_install
+fails with pack_index_corrupt, call pack_cache_reset to wipe and rebuild
+the pyOCD pack index, then retry. Once you have the target string, call
+session_start — omit probe_uid if only one probe is connected, otherwise
+pass the uid from probe_discover. If you have a CMSIS pack on disk, you
+can pass pack=/path/to/pack to bypass the global pack index entirely.
 ```
 
-If you already know your target string:
+If you already know your target string and pack path (fastest path):
 
 ```
-Call session_start with target="stm32g474".
+Call session_start with target="stm32g474ceux" and pack="/path/to/STM32G4xx_DFP".
 ```
 
 ---
 
 ## What it does
 
-- **Probe discovery** — `probe_discover`, `target_suggest`,
-  `pack_search`, `pack_install`, `pack_update`
+- **Probe discovery** — `probe_discover`, `target_suggest` (with
+  local-PDSC bypass), `pack_search`, `pack_install`, `pack_update`,
+  `pack_cache_reset` (recover from corrupt pyOCD pack index).
 - **Session lifecycle** — `session_start`, `session_stop`, `session_status`
-  (reports `image_digest`, `image_tag`, `protocol_version`).
+  (reports `image_digest`, `image_tag`, `protocol_version`, `session_id`).
 - **Probe operations** — `probe_program` (elf / bin / hex), `probe_halt`,
-  `probe_resume`, `probe_reset` (soft / hard), `probe_mem_read`,
-  `probe_blackbox_export`.
+  `probe_resume`, `probe_reset` (`soft`, `hard`, `sw`, `system`, `core`,
+  `backend_default` — each maps to a documented `monitor reset` command
+  and the exact command is echoed back), `probe_mem_read`,
+  `probe_blackbox_export` (explicit range required — see below).
 - **ITM / SWO trace** — `itm_stream_start`, `itm_stream_stop`,
-  `recent_lines`.
+  `itm_stream_export` (raw bytes + decoded JSONL artifact),
+  `recent_lines` (with `session_id` / `method` / `lane` filters).
 - **Lane supervision** — `lane_status`, `lane_release`, `lane_resume`.
 
 Three transport adapters bind concurrently over one shared `BrokerCore`
@@ -220,7 +246,17 @@ brontes-probe-mcp-cli serve
 brontes-probe-mcp-cli probe-agent start [--target TARGET] [--port PORT] [--probe-uid UID]
 brontes-probe-mcp-cli probe-agent status       # prints JSON; exits 1 if not healthy
 brontes-probe-mcp-cli probe-agent stop [--force]
+
+# Generic one-shot JSON-RPC client over the running Unix socket
+brontes-probe-mcp-cli call session_status
+brontes-probe-mcp-cli call mem_read --json '{"addr":536870912,"length":4}'
+brontes-probe-mcp-cli call session_start --json '{"target":"stm32g474ceux"}'
 ```
+
+`call` opens a short-lived connection to the running broker's socket, sends
+one envelope, prints the reply, and exits. Exit codes: `0` on a non-error
+response, `1` on a transport failure or `{"error": ...}` envelope, `2` on
+invalid `--json` input.
 
 If `--target` is omitted, `probe-agent start` auto-detects from a connected
 probe. If multiple probes are attached, specify `--target` and `--probe-uid`.
@@ -244,22 +280,50 @@ All configuration is via `PROBE_BROKER_*` environment variables:
 
 ## Flash memory snapshot (`probe_blackbox_export`)
 
-Capture a binary snapshot of the target's flash for archiving or diff:
+Capture a binary snapshot of the target's memory for archiving or diff.
+**As of 0.3.0 an explicit range is required** — the previous 512 KB flash
+default took roughly four minutes for a 48-byte evidence slice, so we
+removed it. Pass exactly one of:
 
-```json
-{
-  "tool": "probe_blackbox_export",
-  "arguments": {
-    "out": "/tmp/snapshot.bin"
-  }
-}
+```jsonc
+// (1) explicit start/end
+{"tool": "probe_blackbox_export",
+ "arguments": {"out": "/tmp/snapshot.bin",
+               "start_addr": 134217728, "end_addr": 134742016}}
+
+// (2) start + length
+{"tool": "probe_blackbox_export",
+ "arguments": {"out": "/tmp/snapshot.bin",
+               "addr": 536870912, "length": 48}}
+
+// (3) named region from the advisory registry (sram_blackbox = 0x20000000, 64 B)
+{"tool": "probe_blackbox_export",
+ "arguments": {"out": "/tmp/snapshot.bin", "region": "sram_blackbox"}}
 ```
 
-Defaults to `0x08000000`–`0x08080000` (512 KB). Requires an active session.
-Response includes `bytes_written` and `snapshot_at` (UTC ISO-8601).
+Calling with none of those raises `ValueError`. Response includes
+`bytes_written`, `snapshot_at` (UTC ISO-8601), and `resolved_addr` /
+`resolved_length` / `resolved_from_region` recording exactly which range
+the call resolved to.
 
 See [docs/tutorials/blackbox-export.md](https://github.com/cms-pm/brontes-probe-mcp/blob/main/docs/tutorials/blackbox-export.md) for
 custom address ranges, error cases, and snapshot comparison examples.
+
+## Troubleshooting first-use
+
+These are the friction points the 0.2.2 first adopter actually hit, with
+the fix path each one now has in 0.3.0:
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `brontes-probe-mcp-cli: command not found` after `pip install` | Console script not on `PATH` | Re-activate your venv (`source .venv/bin/activate`) or run `python -m brontes_probe_mcp.cli` |
+| `python -m pip` not found inside a fresh venv | Venv created without `pip` | `python -m ensurepip --upgrade` |
+| `session_start(target="stm32g474")` → target unknown | pyOCD wants the full subfamily/package string | Use `target_suggest` to get the exact string (e.g. `"stm32g474ceux"`) — or pass `pack=/path/to/STM32G4xx_DFP` if you have a local CMSIS pack |
+| `pack_search` / `pack_install` / `target_suggest` raise `pack_index_corrupt` (`JSONDecodeError`) | pyOCD's global pack index is malformed | Call `pack_cache_reset` (wipes `~/.pyocd/packs/index/` and re-runs `pyocd pack update`), then retry |
+| Watchdog test reports `boot_outcome=SRON` instead of the expected `WDGR` | Debug-domain reset masked the IWDG path | Read the docstring on `reset(kind=...)` — `hard`/`sw`/`system` reset the debug domain; `soft` is the right choice for IWDG firmware watchdog tests. The `reset_command_echo` and `reset_cause_hint` fields in the response confirm what actually happened |
+| `blackbox_export` raises `ValueError: range required` | Pre-0.3.0 default range was removed | Pass `(addr, length)`, `(start_addr, end_addr)`, or `region="sram_blackbox"` |
+| Audit log noisy across multiple sessions | `recent_lines` returned server-wide history | Pass `session_id=` (from `session_status`); also accepts `method=` and `lane=` filters |
+| `BrokenPipeError` traceback on `Ctrl-C` shutdown | Pre-0.3.0 transport handler raised on the half-closed socket | Already fixed — quiet `DEBUG`-level log line; no action needed |
 
 ## Advanced deployment
 
@@ -279,7 +343,7 @@ docker run -d --name brontes-probe-mcp \
   -e PROBE_BROKER_TOKEN=your-token-here \
   -p 127.0.0.1:7172:7172 \
   --device=/dev/bus/usb \
-  ghcr.io/cms-pm/brontes-probe-mcp:0.2.2
+  ghcr.io/cms-pm/brontes-probe-mcp:0.3.0
 ```
 
 ### Pinning by digest

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-16
+
+First-use hardening release. All seven items raised in the 0.2.2 ForgeVM
+retrospective (`artifacts/feedback/`) are addressed:
+
+| H# | Topic | Surface |
+|---|---|---|
+| H1 | ITM/SWO export | `itm_stream_export`, `ItmStreamSummary` byte/packet counters |
+| H2 | Pack-cache recovery | `pack_cache_reset`, typed `PackIndexCorruptError`, local-PDSC bypass |
+| H3 | Reset catalog | expanded `kind` set, `reset_command_echo`, `reset_cause_hint` |
+| H4 | `blackbox_export` ergonomics | explicit range required; `(addr, length)` and named `region=` forms |
+| H5 | Audit log session correlation | `LogLine.session_id`, `recent_lines(session_id, method, lane)` filters |
+| H6 | First-party RPC CLI | `brontes-probe-mcp-cli call <method>` |
+| H7 | Quiet transport disconnects | `BrokenPipeError`/`ConnectionResetError` logged at DEBUG |
+
+Image digest (pinned): TBD after `v0.3.0` GHCR build completes.
+
 ### Added
 
 - `brontes-probe-mcp-cli call <method> [--json '{...}'] [--socket PATH]
@@ -267,7 +284,8 @@ PyPI namespace reservation (`Development Status :: 1 - Planning`). No
 functional wheel. Typed `BrokerCore` surface and repo skeleton
 (`pyproject.toml`, CI matrix, governance files).
 
-[Unreleased]: https://github.com/cms-pm/brontes-probe-mcp/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/cms-pm/brontes-probe-mcp/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/cms-pm/brontes-probe-mcp/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/cms-pm/brontes-probe-mcp/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/cms-pm/brontes-probe-mcp/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/cms-pm/brontes-probe-mcp/compare/v0.1.0...v0.2.0
