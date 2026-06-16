@@ -17,16 +17,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `recent_lines` filters — `session_id`, `method`, and `lane` parameters
   (AND-combined). Default behaviour (no filters) returns all entries from
   `since_seq` onward, preserving back-compat.
-
-### Changed
-
-- Socket and TCP transport handlers now suppress `BrokenPipeError` and
-  `ConnectionResetError` from the per-connection loop, logging at DEBUG
-  via `logging.getLogger(__name__)` instead of escaping `socketserver`
-  as a traceback during graceful shutdown.
-
-### Added
-
 - `pack_cache_reset()` — broker method (and `pack_cache_reset` MCP tool) that
   removes every file under `BrokerConfig.pyocd_pack_index_dir` and re-runs
   `pyocd pack update`. Opt-in recovery for a corrupt CMSIS pack index;
@@ -69,6 +59,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Socket and TCP transport handlers now suppress `BrokenPipeError` and
+  `ConnectionResetError` from the per-connection loop, logging at DEBUG
+  via `logging.getLogger(__name__)` instead of escaping `socketserver`
+  as a traceback during graceful shutdown.
 - `BrokerCore.reset` accepts an expanded `kind` catalog:
   `{"soft", "hard", "sw", "system", "core", "backend_default"}`. Each maps
   to a documented `monitor reset ...` GDB command. The docstring carries
