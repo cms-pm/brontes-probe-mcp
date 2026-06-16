@@ -22,7 +22,8 @@ retrospective (`artifacts/feedback/`) are addressed:
 | H6 | First-party RPC CLI | `brontes-probe-mcp-cli call <method>` |
 | H7 | Quiet transport disconnects | `BrokenPipeError`/`ConnectionResetError` logged at DEBUG |
 
-Image digest (pinned): TBD after `v0.3.0` GHCR build completes.
+Image digest (pinned):
+`ghcr.io/cms-pm/brontes-probe-mcp@sha256:4b919af0673dea01444d445b5a1abcef4ea904562afbb73a3b11cdd038bcf005`
 
 ### Added
 

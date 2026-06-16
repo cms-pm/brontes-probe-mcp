@@ -63,19 +63,19 @@ Add brontes-probe-mcp to .mcp.json in this project, creating it if needed:
         "-v", "${HOME}/.brontes-probe-mcp/packs:/packs",
         "-e", "PROBE_BROKER_TRANSPORTS=stdio,socket",
         "-e", "CMSIS_PACK_ROOT=/packs",
-        "ghcr.io/cms-pm/brontes-probe-mcp@sha256:61e4d0423085ac734a938b2a45a984e5197e1803326547f5d13d519e67798e91"
+        "ghcr.io/cms-pm/brontes-probe-mcp@sha256:4b919af0673dea01444d445b5a1abcef4ea904562afbb73a3b11cdd038bcf005"
       ]
     }
   }
 }
 
 Then pull the image:
-docker pull ghcr.io/cms-pm/brontes-probe-mcp@sha256:61e4d0423085ac734a938b2a45a984e5197e1803326547f5d13d519e67798e91
+docker pull ghcr.io/cms-pm/brontes-probe-mcp@sha256:4b919af0673dea01444d445b5a1abcef4ea904562afbb73a3b11cdd038bcf005
 
 Then tell me to restart Claude Code to load the new server.
 ```
 
-Replace `sha256:61e4d0423085ac734a938b2a45a984e5197e1803326547f5d13d519e67798e91` with the digest from [CHANGELOG.md](https://github.com/cms-pm/brontes-probe-mcp/blob/main/CHANGELOG.md).
+Replace `sha256:4b919af0673dea01444d445b5a1abcef4ea904562afbb73a3b11cdd038bcf005` with the digest from [CHANGELOG.md](https://github.com/cms-pm/brontes-probe-mcp/blob/main/CHANGELOG.md).
 
 #### Docker on macOS (Docker Desktop)
 
@@ -102,7 +102,7 @@ Add brontes-probe-mcp to .mcp.json in this project, creating it if needed:
         "-e", "PROBE_BROKER_TRANSPORTS=stdio,socket",
         "-e", "CMSIS_PACK_ROOT=/packs",
         "-e", "PROBE_BROKER_GDB_HOST=host.docker.internal",
-        "ghcr.io/cms-pm/brontes-probe-mcp@sha256:61e4d0423085ac734a938b2a45a984e5197e1803326547f5d13d519e67798e91"
+        "ghcr.io/cms-pm/brontes-probe-mcp@sha256:4b919af0673dea01444d445b5a1abcef4ea904562afbb73a3b11cdd038bcf005"
       ]
     }
   }
@@ -377,7 +377,7 @@ Add the following entry to the `mcpServers` object in `~/Library/Application Sup
       "-v", "${HOME}/.brontes-probe-mcp/packs:/packs",
       "-e", "PROBE_BROKER_TRANSPORTS=stdio,socket",
       "-e", "CMSIS_PACK_ROOT=/packs",
-      "ghcr.io/cms-pm/brontes-probe-mcp@sha256:61e4d0423085ac734a938b2a45a984e5197e1803326547f5d13d519e67798e91"
+      "ghcr.io/cms-pm/brontes-probe-mcp@sha256:4b919af0673dea01444d445b5a1abcef4ea904562afbb73a3b11cdd038bcf005"
     ]
   }
 }
@@ -399,7 +399,7 @@ Add to `.mcp.json` in your project root (or `~/.claude.json` for global config):
         "-v", "${HOME}/.brontes-probe-mcp/packs:/packs",
         "-e", "PROBE_BROKER_TRANSPORTS=stdio,socket",
         "-e", "CMSIS_PACK_ROOT=/packs",
-        "ghcr.io/cms-pm/brontes-probe-mcp@sha256:61e4d0423085ac734a938b2a45a984e5197e1803326547f5d13d519e67798e91"
+        "ghcr.io/cms-pm/brontes-probe-mcp@sha256:4b919af0673dea01444d445b5a1abcef4ea904562afbb73a3b11cdd038bcf005"
       ]
     }
   }
@@ -422,7 +422,7 @@ Add to `~/.codex/config.json`:
         "-v", "${HOME}/.brontes-probe-mcp/packs:/packs",
         "-e", "PROBE_BROKER_TRANSPORTS=stdio,socket",
         "-e", "CMSIS_PACK_ROOT=/packs",
-        "ghcr.io/cms-pm/brontes-probe-mcp@sha256:61e4d0423085ac734a938b2a45a984e5197e1803326547f5d13d519e67798e91"
+        "ghcr.io/cms-pm/brontes-probe-mcp@sha256:4b919af0673dea01444d445b5a1abcef4ea904562afbb73a3b11cdd038bcf005"
       ]
     }
   }
@@ -447,7 +447,7 @@ Add to `opencode.json` in your project root:
           "-v", "${HOME}/.brontes-probe-mcp/packs:/packs",
           "-e", "PROBE_BROKER_TRANSPORTS=stdio,socket",
           "-e", "CMSIS_PACK_ROOT=/packs",
-          "ghcr.io/cms-pm/brontes-probe-mcp@sha256:61e4d0423085ac734a938b2a45a984e5197e1803326547f5d13d519e67798e91"
+          "ghcr.io/cms-pm/brontes-probe-mcp@sha256:4b919af0673dea01444d445b5a1abcef4ea904562afbb73a3b11cdd038bcf005"
         ]
       }
     }
@@ -456,7 +456,7 @@ Add to `opencode.json` in your project root:
 ```
 <!-- END client-configs -->
 
-Replace `sha256:61e4d0423085ac734a938b2a45a984e5197e1803326547f5d13d519e67798e91` with the pinned digest from [CHANGELOG.md](https://github.com/cms-pm/brontes-probe-mcp/blob/main/CHANGELOG.md).
+Replace `sha256:4b919af0673dea01444d445b5a1abcef4ea904562afbb73a3b11cdd038bcf005` with the pinned digest from [CHANGELOG.md](https://github.com/cms-pm/brontes-probe-mcp/blob/main/CHANGELOG.md).
 
 ## Why "Brontes"
 
