@@ -26,6 +26,8 @@ A Model Context Protocol (MCP) server that gives AI assistants direct access
 to a debug probe — flash firmware, halt/resume, read memory, and stream ITM
 trace, all without leaving the conversation.
 
+It's the debug-probe tooling behind [*Fail Closed: Governing AI Coding Agents on Real Hardware*](https://failclosed.dev).
+
 **Status: 0.3.0 — first-use hardened.**
 Session lifecycle, probe operations, ITM/SWO trace (raw + decoded export),
 CMSIS pack-cache recovery, and lane supervision over three concurrent
