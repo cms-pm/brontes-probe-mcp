@@ -62,6 +62,7 @@ def broker_with_session(broker: BrokerCore) -> BrokerCore:
 
 # ── GDB-backed operations ─────────────────────────────────────────────────────
 
+
 def test_halt_returns_probe_state(broker_with_session: BrokerCore) -> None:
     broker = broker_with_session
     result = broker.halt()
@@ -97,9 +98,7 @@ def test_reset_hard_returns_probe_state(broker_with_session: BrokerCore) -> None
     assert result.reset is True
 
 
-def test_reset_halt_after(
-    broker_with_session: BrokerCore, mock_run: MagicMock
-) -> None:
+def test_reset_halt_after(broker_with_session: BrokerCore, mock_run: MagicMock) -> None:
     result = broker_with_session.reset(halt_after=True)
     assert result.halted_after is True
     args = mock_run.call_args[0][0]
@@ -130,6 +129,71 @@ def test_program_returns_result(
     assert isinstance(result, ProgramResult)
     assert result.format == "elf"
     assert result.programmed_bytes == 128
+
+
+def test_flash_error_status_lookup() -> None:
+    from brontes_probe_mcp.core.broker import _flash_error_status
+
+    assert _flash_error_status("stm32g474ceux") == (0x40022010, 0xC3FA)
+    assert _flash_error_status("STM32L432KC") == (0x40022010, 0xC3FA)
+    assert _flash_error_status("nrf52840") is None
+    assert _flash_error_status(None) is None
+    assert _flash_error_status("") is None
+
+
+def test_program_clears_and_checks_flash_status_on_known_family(
+    broker_with_session: BrokerCore, mock_run: MagicMock, tmp_path: Path
+) -> None:
+    broker = broker_with_session
+    broker._session_target = "stm32g474ceux"
+    artifact = tmp_path / "firmware.elf"
+    artifact.write_bytes(b"\x00" * 128)
+    mock_run.side_effect = [
+        _completed(""),  # pre-load clear of FLASH_SR
+        _completed("load size 128\n"),  # load
+        _completed("0x40022010:\t0x00000000\n"),  # FLASH_SR read-back: clean
+        _completed(""),  # post halt
+    ]
+    result = broker.program(artifact=artifact)
+    assert result.programmed_bytes == 128
+    assert result.flash_status == 0
+    calls = [" ".join(str(a) for a in c.args[0]) for c in mock_run.call_args_list]
+    # FLASH_SR was cleared (write of the error mask) before load, and read after.
+    assert any("40022010" in c and "0x0000c3fa" in c.lower() for c in calls)
+    assert any("x/1wx 0x40022010" in c for c in calls)
+
+
+def test_program_raises_on_flash_error(
+    broker_with_session: BrokerCore, mock_run: MagicMock, tmp_path: Path
+) -> None:
+    broker = broker_with_session
+    broker._session_target = "stm32g474ceux"
+    artifact = tmp_path / "firmware.elf"
+    artifact.write_bytes(b"\x00" * 128)
+    mock_run.side_effect = [
+        _completed(""),  # pre-load clear
+        _completed("load size 128\n"),  # load reports a size...
+        _completed(
+            "0x40022010:\t0x000000a0\n"
+        ),  # ...but FLASH_SR has PGSERR+PGAERR set
+    ]
+    with pytest.raises(RuntimeError, match="FLASH_SR=0x000000a0"):
+        broker.program(artifact=artifact)
+
+
+def test_program_skips_flash_status_on_unknown_target(
+    broker_with_session: BrokerCore, mock_run: MagicMock, tmp_path: Path
+) -> None:
+    broker = broker_with_session
+    broker._session_target = "nrf52840"  # no flash error-status entry
+    artifact = tmp_path / "firmware.elf"
+    artifact.write_bytes(b"\x00" * 128)
+    mock_run.return_value = _completed("load size 128\n")
+    result = broker.program(artifact=artifact)
+    assert result.flash_status is None
+    assert result.programmed_bytes == 128
+    calls = [" ".join(str(a) for a in c.args[0]) for c in mock_run.call_args_list]
+    assert not any("40022010" in c for c in calls)
 
 
 def test_blackbox_export_returns_result(
@@ -163,6 +227,7 @@ def test_blackbox_export_no_range_raises(
 
 # ── FND-001: GDB error propagation ───────────────────────────────────────────
 
+
 def test_gdb_failure_raises(
     broker_with_session: BrokerCore, mock_run: MagicMock
 ) -> None:
@@ -182,6 +247,7 @@ def test_gdb_failure_stderr_in_message(
 
 
 # ── FND-002: session guard ────────────────────────────────────────────────────
+
 
 def test_probe_op_without_session_raises(broker: BrokerCore) -> None:
     with pytest.raises(SessionRequiredError):
@@ -220,6 +286,7 @@ def test_session_state_tracks_start_stop(
 
 # ── Lane / ITM operations ─────────────────────────────────────────────────────
 
+
 def test_itm_stream_start_returns_handle(broker: BrokerCore) -> None:
     result = broker.itm_stream_start(ports=[0, 1])
     assert isinstance(result, ItmStreamHandle)
@@ -256,6 +323,7 @@ def test_lane_resume_returns_lane_status(broker: BrokerCore) -> None:
 
 # ── Session delegation ────────────────────────────────────────────────────────
 
+
 def test_session_status_stopped_initially(broker: BrokerCore) -> None:
     result = broker.session_status()
     assert isinstance(result, SessionStatus)
@@ -287,9 +355,12 @@ def test_session_stop_returns_stopped(
 
 # ── External agent mode ───────────────────────────────────────────────────────
 
+
 def test_external_agent_skips_pyocd_spawn(
-    mock_run: MagicMock, mock_popen: MagicMock,
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    mock_run: MagicMock,
+    mock_popen: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     config = BrokerConfig(
         log_dir=str(tmp_path / "logs"),
@@ -305,8 +376,10 @@ def test_external_agent_skips_pyocd_spawn(
 
 
 def test_external_agent_unhealthy_when_unreachable(
-    mock_run: MagicMock, mock_popen: MagicMock,
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    mock_run: MagicMock,
+    mock_popen: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     config = BrokerConfig(
         log_dir=str(tmp_path / "logs"),
@@ -322,8 +395,10 @@ def test_external_agent_unhealthy_when_unreachable(
 
 
 def test_external_agent_stop_does_not_kill_agent(
-    mock_run: MagicMock, mock_popen: MagicMock,
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    mock_run: MagicMock,
+    mock_popen: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     config = BrokerConfig(
         log_dir=str(tmp_path / "logs"),
@@ -341,7 +416,9 @@ def test_external_agent_stop_does_not_kill_agent(
 
 
 def test_local_spawn_still_calls_popen(
-    broker: BrokerCore, mock_popen: MagicMock, monkeypatch: pytest.MonkeyPatch,
+    broker: BrokerCore,
+    mock_popen: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(session_module.os, "getpgid", lambda pid: pid)
     monkeypatch.setattr(broker._sessions, "_tcp_ready", lambda *a, **kw: True)
@@ -350,8 +427,10 @@ def test_local_spawn_still_calls_popen(
 
 
 def test_auto_discovery_uses_agent_when_state_file_healthy(
-    mock_run: MagicMock, mock_popen: MagicMock,
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    mock_run: MagicMock,
+    mock_popen: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     state_dir = tmp_path / "agent_state"
     state_dir.mkdir()
@@ -374,8 +453,10 @@ def test_auto_discovery_uses_agent_when_state_file_healthy(
 
 
 def test_auto_discovery_falls_through_when_agent_unreachable(
-    mock_run: MagicMock, mock_popen: MagicMock,
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    mock_run: MagicMock,
+    mock_popen: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     state_dir = tmp_path / "agent_state"
     state_dir.mkdir()
@@ -398,8 +479,10 @@ def test_auto_discovery_falls_through_when_agent_unreachable(
 
 
 def test_auto_discovery_skips_malformed_state_file(
-    mock_run: MagicMock, mock_popen: MagicMock,
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    mock_run: MagicMock,
+    mock_popen: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     state_dir = tmp_path / "agent_state"
     state_dir.mkdir()
@@ -419,8 +502,10 @@ def test_auto_discovery_skips_malformed_state_file(
 
 
 def test_auto_discovery_skips_when_no_state_file(
-    mock_run: MagicMock, mock_popen: MagicMock,
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    mock_run: MagicMock,
+    mock_popen: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     config = BrokerConfig(
         log_dir=str(tmp_path / "logs"),
@@ -437,8 +522,10 @@ def test_auto_discovery_skips_when_no_state_file(
 
 
 def test_external_agent_status_probes_tcp_not_pid(
-    mock_run: MagicMock, mock_popen: MagicMock,
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    mock_run: MagicMock,
+    mock_popen: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     """session_status() for an external agent must use TCP probe, not os.kill."""
     config = BrokerConfig(
@@ -461,6 +548,7 @@ def test_external_agent_status_probes_tcp_not_pid(
 
 
 # ── Audit log ─────────────────────────────────────────────────────────────────
+
 
 def test_recent_lines_after_halt(broker_with_session: BrokerCore) -> None:
     broker_with_session.halt()
@@ -517,12 +605,11 @@ def test_audit_lane_field_set(broker: BrokerCore) -> None:
 
 # ── COM-003: mem_read output parsing ─────────────────────────────────────────
 
+
 def test_mem_read_format_hex(
     broker_with_session: BrokerCore, mock_run: MagicMock
 ) -> None:
-    mock_run.return_value = _completed(
-        stdout="0x20000000:\t0xDEADBEEF\t0x00000001\n"
-    )
+    mock_run.return_value = _completed(stdout="0x20000000:\t0xDEADBEEF\t0x00000001\n")
     result = broker_with_session.mem_read(addr=0x20000000, length=8, format="hex")
     assert result.format == "hex"
     assert isinstance(result.value, list)
@@ -534,9 +621,7 @@ def test_mem_read_format_bytes_default(
 ) -> None:
     import base64
 
-    mock_run.return_value = _completed(
-        stdout="0x20000000:\t0xDEADBEEF\n"
-    )
+    mock_run.return_value = _completed(stdout="0x20000000:\t0xDEADBEEF\n")
     result = broker_with_session.mem_read(addr=0x20000000, length=4)
     assert result.format == "bytes"
     assert isinstance(result.value, str)
@@ -563,6 +648,7 @@ def test_program_bytes_from_gdb_load_output(
 
 # ── COM-007: blackbox_export uses GDB x/Nwx (not dump binary memory) ─────────
 
+
 def test_blackbox_export_calls_gdb_dump(
     broker_with_session: BrokerCore, mock_run: MagicMock, tmp_path: Path
 ) -> None:
@@ -583,6 +669,7 @@ def test_blackbox_export_calls_gdb_dump(
 
 
 # ── COM-004: lane thread-safety ───────────────────────────────────────────────
+
 
 def test_lane_supervisor_concurrent_mutations(broker: BrokerCore) -> None:
     import threading as _threading
@@ -620,9 +707,7 @@ _PROBES_JSON = (
 )
 
 
-def test_probe_discover_returns_result(
-    broker: BrokerCore, mock_run: MagicMock
-) -> None:
+def test_probe_discover_returns_result(broker: BrokerCore, mock_run: MagicMock) -> None:
     mock_run.return_value = _completed(stdout=_PROBES_JSON)
     result = broker.probe_discover()
     assert isinstance(result, ProbeDiscoverResult)
@@ -630,9 +715,7 @@ def test_probe_discover_returns_result(
     assert result.probes[0].uid == "abc123"
 
 
-def test_probe_discover_empty_boards(
-    broker: BrokerCore, mock_run: MagicMock
-) -> None:
+def test_probe_discover_empty_boards(broker: BrokerCore, mock_run: MagicMock) -> None:
     mock_run.return_value = _completed(stdout='{"boards": []}')
     result = broker.probe_discover()
     assert result.probes == []
@@ -654,13 +737,11 @@ _TARGETS_JSON = (
     '"part_number": "STM32G474CEUx", "part_families": ["STM32G4"], "source": "pack"},'
     '{"name": "nrf52840", "vendor": "Nordic", "part_number": "nRF52840", '
     '"part_families": ["nRF52"], "source": "builtin"}'
-    ']}'
+    "]}"
 )
 
 
-def test_target_suggest_returns_result(
-    broker: BrokerCore, mock_run: MagicMock
-) -> None:
+def test_target_suggest_returns_result(broker: BrokerCore, mock_run: MagicMock) -> None:
     mock_run.return_value = _completed(stdout=_TARGETS_JSON)
     result = broker.target_suggest("stm32g4")
     assert isinstance(result, TargetSuggestResult)
@@ -669,9 +750,7 @@ def test_target_suggest_returns_result(
     assert result.targets[0].name == "stm32g474ceux"
 
 
-def test_target_suggest_no_match(
-    broker: BrokerCore, mock_run: MagicMock
-) -> None:
+def test_target_suggest_no_match(broker: BrokerCore, mock_run: MagicMock) -> None:
     mock_run.return_value = _completed(stdout=_TARGETS_JSON)
     result = broker.target_suggest("zzz_no_such_mcu")
     assert result.targets == []
@@ -697,12 +776,11 @@ def test_target_suggest_explicit_pack_passed(
 
 # ── default_pack fallback ─────────────────────────────────────────────────────
 
+
 def test_target_suggest_uses_default_pack(
     mock_run: MagicMock, mock_popen: MagicMock, tmp_path: Path
 ) -> None:
-    config = BrokerConfig(
-        log_dir=str(tmp_path / "logs"), default_pack="/default/pack"
-    )
+    config = BrokerConfig(log_dir=str(tmp_path / "logs"), default_pack="/default/pack")
     b = BrokerCore(
         config=config, _subprocess_run=mock_run, _subprocess_popen=mock_popen
     )
@@ -716,9 +794,7 @@ def test_target_suggest_uses_default_pack(
 def test_target_suggest_explicit_pack_overrides_default(
     mock_run: MagicMock, mock_popen: MagicMock, tmp_path: Path
 ) -> None:
-    config = BrokerConfig(
-        log_dir=str(tmp_path / "logs"), default_pack="/default/pack"
-    )
+    config = BrokerConfig(log_dir=str(tmp_path / "logs"), default_pack="/default/pack")
     b = BrokerCore(
         config=config, _subprocess_run=mock_run, _subprocess_popen=mock_popen
     )
@@ -730,12 +806,12 @@ def test_target_suggest_explicit_pack_overrides_default(
 
 
 def test_session_start_uses_default_pack(
-    mock_run: MagicMock, mock_popen: MagicMock,
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    mock_run: MagicMock,
+    mock_popen: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
-    config = BrokerConfig(
-        log_dir=str(tmp_path / "logs"), default_pack="/default/pack"
-    )
+    config = BrokerConfig(log_dir=str(tmp_path / "logs"), default_pack="/default/pack")
     b = BrokerCore(
         config=config, _subprocess_run=mock_run, _subprocess_popen=mock_popen
     )

@@ -51,9 +51,7 @@ _RESET_KIND_TO_CMD: dict[str, str] = {
     "backend_default": "monitor reset",
 }
 
-ResetKind = Literal[
-    "soft", "hard", "sw", "system", "core", "backend_default"
-]
+ResetKind = Literal["soft", "hard", "sw", "system", "core", "backend_default"]
 
 # Substrings in subprocess stderr that signal a corrupt pack index.
 _PACK_CORRUPT_SIGNATURES: tuple[str, ...] = (
@@ -71,7 +69,7 @@ _GDB_PREAMBLE_PREFIXES: tuple[str, ...] = (
     "Copyright",
     "License GPLv3",
     "This GDB was configured",
-    "Type \"apropos",
+    'Type "apropos',
     "For bug reporting",
     "(No debugging symbols",
 )
@@ -121,6 +119,35 @@ def _parse_gdb_load_size(output: str) -> int:
     return 0
 
 
+# STM32 flash error-status registers, for program-time health checks (issue #21).
+#
+# A sticky flash error (e.g. PGSERR/PGAERR) silently blocks all further
+# programming while GDB `load` still reports a load size, so `program` can
+# report success with nothing written. We clear these rc_w1 error flags *before*
+# a load (recovering from a prior sticky error) and read FLASH_SR back *after*
+# (failing loud if the controller flagged an error). Keyed by target-name
+# prefix; extend per validated family. Value is (FLASH_SR address, error mask).
+#
+# STM32G4/L4 share FLASH_SR @ 0x40022010 with error bits OPERR(1), PROGERR(3),
+# WRPERR(4), PGAERR(5), SIZERR(6), PGSERR(7), MISERR(8), FASTERR(9), OPTVERR(15)
+# -> 0xC3FA. EOP (bit 0) is a normal completion flag, not an error, left as-is.
+_FLASH_ERROR_STATUS: dict[str, tuple[int, int]] = {
+    "stm32g4": (0x40022010, 0xC3FA),
+    "stm32l4": (0x40022010, 0xC3FA),
+}
+
+
+def _flash_error_status(target: str | None) -> tuple[int, int] | None:
+    """Return (FLASH_SR address, error-bit mask) for a target, or None if unknown."""
+    if not target:
+        return None
+    lowered = target.lower()
+    for prefix, spec in _FLASH_ERROR_STATUS.items():
+        if lowered.startswith(prefix):
+            return spec
+    return None
+
+
 class BrokerCore:
     def __init__(
         self,
@@ -142,6 +169,9 @@ class BrokerCore:
         self._seq = 0
         self._session_state: str = "stopped"
         self._session_id: str | None = None
+        # Target of the active session (e.g. "stm32g474ceux"), used to pick the
+        # flash error-status register for program-time health checks (issue #21).
+        self._session_target: str | None = None
 
     def _log_op(
         self,
@@ -199,6 +229,25 @@ class BrokerCore:
         stdout, _ = self._exec_gdb(commands, symbol_file=symbol_file)
         return stdout
 
+    def _read_register(self, addr: int) -> int | None:
+        """Read one 32-bit peripheral register. Returns None if GDB gave no word."""
+        # Peripheral registers sit outside the backend's memory map, so disable the
+        # inaccessible-by-default guard for this read.
+        output = self._run_gdb(
+            ["set mem inaccessible-by-default off", f"x/1wx 0x{addr:08x}"]
+        )
+        words = _parse_gdb_hex_dump(output)
+        return int(words[0], 16) if words else None
+
+    def _write_register(self, addr: int, value: int) -> None:
+        """Write one 32-bit peripheral register."""
+        self._run_gdb(
+            [
+                "set mem inaccessible-by-default off",
+                f"set {{unsigned int}}0x{addr:08x} = 0x{value:08x}",
+            ]
+        )
+
     def program(
         self,
         artifact: Path,
@@ -210,22 +259,60 @@ class BrokerCore:
         self._require_session()
         t0 = time.monotonic()
         sym = artifact if format == "elf" else None
-        cmds = ["monitor halt", f"load {artifact}"]
-        if reset_after:
-            cmds.append("monitor reset")
-        if halt_after:
-            cmds.append("monitor halt")
-        output = self._run_gdb(cmds, symbol_file=sym)
+
+        # On families with a known flash error-status register, clear any sticky error
+        # (rc_w1) before loading so a prior failure does not silently block this program
+        # while GDB `load` still reports a size (issue #21).
+        status = _flash_error_status(self._session_target)
+        if status is not None:
+            self._write_register(status[0], status[1])
+
+        output = self._run_gdb(["monitor halt", f"load {artifact}"], symbol_file=sym)
         elapsed = time.monotonic() - t0
         programmed_bytes = _parse_gdb_load_size(output)
         if programmed_bytes == 0:
             programmed_bytes = artifact.stat().st_size if artifact.exists() else 0
-        self._log_op("program", payload={"artifact": str(artifact), "format": format})
+
+        # Read FLASH_SR back *before* any reset (a system reset clears it) and
+        # fail loud if the controller flagged an error during programming: GDB
+        # `load` reports a size even when the write did not take (issue #21).
+        flash_status: int | None = None
+        if status is not None:
+            flash_status = self._read_register(status[0])
+            if flash_status is not None and flash_status & status[1]:
+                self._log_op(
+                    "program",
+                    ok=False,
+                    payload={"artifact": str(artifact), "flash_status": flash_status},
+                )
+                raise RuntimeError(
+                    f"flash programming error: FLASH_SR=0x{flash_status:08x} "
+                    f"(error bits 0x{flash_status & status[1]:04x}) after load of "
+                    f"{artifact}; the write did not take"
+                )
+
+        post: list[str] = []
+        if reset_after:
+            post.append("monitor reset")
+        if halt_after:
+            post.append("monitor halt")
+        if post:
+            self._run_gdb(post)
+
+        self._log_op(
+            "program",
+            payload={
+                "artifact": str(artifact),
+                "format": format,
+                "flash_status": flash_status,
+            },
+        )
         return ProgramResult(
             programmed_bytes=programmed_bytes,
             duration_s=elapsed,
             halted=halt_after,
             format=format,
+            flash_status=flash_status,
         )
 
     def halt(self) -> ProbeState:
@@ -349,9 +436,7 @@ class BrokerCore:
         if region is not None:
             if region not in self._BLACKBOX_REGIONS:
                 known = sorted(self._BLACKBOX_REGIONS)
-                raise ValueError(
-                    f"unknown region {region!r}; known regions: {known}"
-                )
+                raise ValueError(f"unknown region {region!r}; known regions: {known}")
             resolved_addr, resolved_length = self._BLACKBOX_REGIONS[region]
             resolved_from_region = region
         elif addr is not None and length is not None:
@@ -450,9 +535,7 @@ class BrokerCore:
             records, packet_count = decode_software_packets(
                 raw, port_filter=port_filter
             )
-            decoded_path.write_text(
-                "".join(json.dumps(r) + "\n" for r in records)
-            )
+            decoded_path.write_text("".join(json.dumps(r) + "\n" for r in records))
 
         self._lanes.itm_swo.set_export_artifact(raw_path)
         self._log_op(
@@ -568,7 +651,8 @@ class BrokerCore:
         # Derive a best-effort cause_class from whichever signature fired;
         # all three are subclasses/messages of json.JSONDecodeError in practice.
         cause_class = (
-            "json.JSONDecodeError" if matched == "JSONDecodeError"
+            "json.JSONDecodeError"
+            if matched == "JSONDecodeError"
             else f"json.JSONDecodeError ({matched.rstrip(':')})"
         )
         cause_message = stderr.strip() or stdout.strip()
@@ -579,9 +663,7 @@ class BrokerCore:
             index_path_hint=self._config.pyocd_pack_index_dir,
         )
 
-    def _parse_local_pdsc_targets(
-        self, pdsc_dir: Path, query: str
-    ) -> list[TargetInfo]:
+    def _parse_local_pdsc_targets(self, pdsc_dir: Path, query: str) -> list[TargetInfo]:
         """Parse every .pdsc file in pdsc_dir; return matching devices.
 
         Raises PackParseError on the first malformed PDSC encountered;
@@ -668,9 +750,7 @@ class BrokerCore:
                             "source": "local_pdsc",
                         },
                     )
-                    return TargetSuggestResult(
-                        targets=matches, query=query, pack=pack
-                    )
+                    return TargetSuggestResult(targets=matches, query=query, pack=pack)
 
         args = [self._config.pyocd_bin, "json", "--targets"]
         if pack is not None:
@@ -680,13 +760,9 @@ class BrokerCore:
         )
         if result.returncode != 0:
             detail = (result.stderr or result.stdout or "").strip()
-            self._raise_if_pack_corrupt(
-                result.stderr or "", result.stdout or ""
-            )
+            self._raise_if_pack_corrupt(result.stderr or "", result.stdout or "")
             raise RuntimeError(f"pyocd json --targets failed: {detail}")
-        self._raise_if_pack_corrupt(
-            result.stderr or "", result.stdout or ""
-        )
+        self._raise_if_pack_corrupt(result.stderr or "", result.stdout or "")
         data: Any = json.loads(result.stdout)
         q = query.lower()
         matches = []
@@ -710,9 +786,7 @@ class BrokerCore:
                         source=str(t.get("source", "")),
                     )
                 )
-        self._log_op(
-            "target_suggest", payload={"query": query, "count": len(matches)}
-        )
+        self._log_op("target_suggest", payload={"query": query, "count": len(matches)})
         return TargetSuggestResult(targets=matches, query=query, pack=pack)
 
     def pack_search(self, query: str) -> PackSearchResult:
@@ -834,9 +908,8 @@ class BrokerCore:
         # session_id only stamps audit entries while a session is active.
         # A failed start (state != "healthy") still gets a fresh id from
         # SessionManager; we only adopt it when the session is usable.
-        self._session_id = (
-            result.session_id if result.state == "healthy" else None
-        )
+        self._session_id = result.session_id if result.state == "healthy" else None
+        self._session_target = result.target if result.state == "healthy" else None
         return result
 
     def session_stop(self, force: bool = False) -> SessionStatus:
@@ -847,6 +920,7 @@ class BrokerCore:
         # uncoordinated with this write). Acceptable for an audit log;
         # noted here so future refactors don't assume strict ordering.
         self._session_id = None
+        self._session_target = None
         return result
 
     def session_status(self) -> SessionStatus:

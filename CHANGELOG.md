@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Flash `program` no longer silently no-ops (#21).** On STM32 targets a sticky
+  `FLASH_SR` error (e.g. `PGSERR`/`PGAERR`) blocks all further programming while
+  GDB `load` still reports a load size, so `program` could report success with
+  nothing written. `program` now clears the flash error-status flags before the
+  load (recovering from a prior sticky error) and reads `FLASH_SR` back after,
+  raising instead of reporting a phantom success when the controller flagged an
+  error. Target families are matched by name prefix (STM32G4/L4 to start).
+
+### Added
+
+- `ProgramResult.flash_status`: the post-program `FLASH_SR` value on families
+  with a known flash error-status register (`None` otherwise).
+
 ## [0.3.0] - 2026-06-16
 
 First-use hardening release. All seven items raised in the 0.2.2 ForgeVM
