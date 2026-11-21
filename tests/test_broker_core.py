@@ -141,6 +141,15 @@ def test_flash_error_status_lookup() -> None:
     assert _flash_error_status("") is None
 
 
+def test_parse_register_read() -> None:
+    from brontes_probe_mcp.core.broker import _parse_register_read
+
+    out = "Start address 0x08000000, load size 128\n0x40022010:\t0x000000a0\n"
+    assert _parse_register_read(out, 0x40022010) == 0xA0
+    assert _parse_register_read(out, 0x40022014) is None  # addr not in output
+    assert _parse_register_read("", 0x40022010) is None
+
+
 def test_program_clears_and_checks_flash_status_on_known_family(
     broker_with_session: BrokerCore, mock_run: MagicMock, tmp_path: Path
 ) -> None:
@@ -148,19 +157,18 @@ def test_program_clears_and_checks_flash_status_on_known_family(
     broker._session_target = "stm32g474ceux"
     artifact = tmp_path / "firmware.elf"
     artifact.write_bytes(b"\x00" * 128)
-    mock_run.side_effect = [
-        _completed(""),  # pre-load clear of FLASH_SR
-        _completed("load size 128\n"),  # load
-        _completed("0x40022010:\t0x00000000\n"),  # FLASH_SR read-back: clean
-        _completed(""),  # post halt
-    ]
+    # Single GDB batch: load summary + a clean FLASH_SR read-back.
+    mock_run.return_value = _completed(
+        "Start address 0x08000000, load size 128\n0x40022010:\t0x00000000\n"
+    )
     result = broker.program(artifact=artifact)
     assert result.programmed_bytes == 128
     assert result.flash_status == 0
-    calls = [" ".join(str(a) for a in c.args[0]) for c in mock_run.call_args_list]
-    # FLASH_SR was cleared (write of the error mask) before load, and read after.
-    assert any("40022010" in c and "0x0000c3fa" in c.lower() for c in calls)
-    assert any("x/1wx 0x40022010" in c for c in calls)
+    # One invocation, carrying the pre-load clear and the post-load read.
+    assert mock_run.call_count == 1
+    batch = " ".join(str(a) for a in mock_run.call_args[0][0])
+    assert "0x0000c3fa" in batch.lower()  # FLASH_SR cleared before load
+    assert "x/1wx 0x40022010" in batch  # FLASH_SR read back after load
 
 
 def test_program_raises_on_flash_error(
@@ -170,14 +178,23 @@ def test_program_raises_on_flash_error(
     broker._session_target = "stm32g474ceux"
     artifact = tmp_path / "firmware.elf"
     artifact.write_bytes(b"\x00" * 128)
-    mock_run.side_effect = [
-        _completed(""),  # pre-load clear
-        _completed("load size 128\n"),  # load reports a size...
-        _completed(
-            "0x40022010:\t0x000000a0\n"
-        ),  # ...but FLASH_SR has PGSERR+PGAERR set
-    ]
+    # load reports a size, but FLASH_SR has PGSERR+PGAERR set.
+    mock_run.return_value = _completed("load size 128\n0x40022010:\t0x000000a0\n")
     with pytest.raises(RuntimeError, match="FLASH_SR=0x000000a0"):
+        broker.program(artifact=artifact)
+
+
+def test_program_raises_when_flash_status_unreadable(
+    broker_with_session: BrokerCore, mock_run: MagicMock, tmp_path: Path
+) -> None:
+    broker = broker_with_session
+    broker._session_target = "stm32g474ceux"
+    artifact = tmp_path / "firmware.elf"
+    artifact.write_bytes(b"\x00" * 128)
+    # Known family, but no FLASH_SR word in the output -> cannot confirm; must not
+    # report a phantom success.
+    mock_run.return_value = _completed("load size 128\n")
+    with pytest.raises(RuntimeError, match="could not read FLASH_SR"):
         broker.program(artifact=artifact)
 
 

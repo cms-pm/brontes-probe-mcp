@@ -128,13 +128,30 @@ def _parse_gdb_load_size(output: str) -> int:
 # (failing loud if the controller flagged an error). Keyed by target-name
 # prefix; extend per validated family. Value is (FLASH_SR address, error mask).
 #
-# STM32G4/L4 share FLASH_SR @ 0x40022010 with error bits OPERR(1), PROGERR(3),
-# WRPERR(4), PGAERR(5), SIZERR(6), PGSERR(7), MISERR(8), FASTERR(9), OPTVERR(15)
-# -> 0xC3FA. EOP (bit 0) is a normal completion flag, not an error, left as-is.
+# STM32G4/L4 share FLASH_SR @ 0x40022010. Error bits: OPERR(1), PROGERR(3),
+# WRPERR(4), PGAERR(5), SIZERR(6), PGSERR(7), MISERR(8), FASTERR(9), RDERR(14),
+# OPTVERR(15) -> 0xC3FA. EOP (bit 0) is a normal completion flag, not an error.
 _FLASH_ERROR_STATUS: dict[str, tuple[int, int]] = {
     "stm32g4": (0x40022010, 0xC3FA),
     "stm32l4": (0x40022010, 0xC3FA),
 }
+
+
+def _parse_register_read(output: str, addr: int) -> int | None:
+    """Return the first word GDB printed for `x` at `addr`, or None if absent.
+
+    GDB renders a memory examine as ``0x40022010:\\t0x000000a0`` (optionally with a
+    ``<symbol>`` between address and colon). We match the line by address so the read is
+    not confused with the `load` summary lines in the same batch output.
+    """
+    prefix = f"0x{addr:08x}"
+    for line in output.splitlines():
+        head, sep, rest = line.partition(":")
+        if sep and head.strip().lower().startswith(prefix):
+            for token in rest.split():
+                if token.lower().startswith("0x"):
+                    return int(token, 16)
+    return None
 
 
 def _flash_error_status(target: str | None) -> tuple[int, int] | None:
@@ -229,25 +246,6 @@ class BrokerCore:
         stdout, _ = self._exec_gdb(commands, symbol_file=symbol_file)
         return stdout
 
-    def _read_register(self, addr: int) -> int | None:
-        """Read one 32-bit peripheral register. Returns None if GDB gave no word."""
-        # Peripheral registers sit outside the backend's memory map, so disable the
-        # inaccessible-by-default guard for this read.
-        output = self._run_gdb(
-            ["set mem inaccessible-by-default off", f"x/1wx 0x{addr:08x}"]
-        )
-        words = _parse_gdb_hex_dump(output)
-        return int(words[0], 16) if words else None
-
-    def _write_register(self, addr: int, value: int) -> None:
-        """Write one 32-bit peripheral register."""
-        self._run_gdb(
-            [
-                "set mem inaccessible-by-default off",
-                f"set {{unsigned int}}0x{addr:08x} = 0x{value:08x}",
-            ]
-        )
-
     def program(
         self,
         artifact: Path,
@@ -261,25 +259,48 @@ class BrokerCore:
         sym = artifact if format == "elf" else None
 
         # On families with a known flash error-status register, clear any sticky error
-        # (rc_w1) before loading so a prior failure does not silently block this program
-        # while GDB `load` still reports a size (issue #21).
+        # (rc_w1) before the load and read FLASH_SR back after it, all in one GDB batch:
+        # no extra target reconnects, and the read happens before any reset (a system
+        # reset clears FLASH_SR). GDB `load` reports a size even when a sticky error
+        # silently blocked the write, so without this `program` can report a phantom
+        # success (issue #21). On the affected G474 the error bits persist (and are
+        # readable) after a failed load, so the post-load read catches it.
         status = _flash_error_status(self._session_target)
+        cmds: list[str] = []
         if status is not None:
-            self._write_register(status[0], status[1])
+            cmds += [
+                "set mem inaccessible-by-default off",
+                "monitor halt",
+                f"set {{unsigned int}}0x{status[0]:08x} = 0x{status[1]:08x}",
+            ]
+        else:
+            cmds.append("monitor halt")
+        cmds.append(f"load {artifact}")
+        if status is not None:
+            cmds.append(f"x/1wx 0x{status[0]:08x}")
+        if reset_after:
+            cmds.append("monitor reset")
+        if halt_after:
+            cmds.append("monitor halt")
 
-        output = self._run_gdb(["monitor halt", f"load {artifact}"], symbol_file=sym)
+        output = self._run_gdb(cmds, symbol_file=sym)
         elapsed = time.monotonic() - t0
         programmed_bytes = _parse_gdb_load_size(output)
         if programmed_bytes == 0:
             programmed_bytes = artifact.stat().st_size if artifact.exists() else 0
 
-        # Read FLASH_SR back *before* any reset (a system reset clears it) and
-        # fail loud if the controller flagged an error during programming: GDB
-        # `load` reports a size even when the write did not take (issue #21).
         flash_status: int | None = None
         if status is not None:
-            flash_status = self._read_register(status[0])
-            if flash_status is not None and flash_status & status[1]:
+            flash_status = _parse_register_read(output, status[0])
+            if flash_status is None:
+                # Could not read FLASH_SR back: we cannot confirm the write took, so do
+                # not report a phantom success.
+                self._log_op("program", ok=False, payload={"artifact": str(artifact)})
+                raise RuntimeError(
+                    f"could not read FLASH_SR (0x{status[0]:08x}) to confirm the "
+                    f"program of {artifact}"
+                )
+            if flash_status & status[1]:
                 self._log_op(
                     "program",
                     ok=False,
@@ -290,14 +311,6 @@ class BrokerCore:
                     f"(error bits 0x{flash_status & status[1]:04x}) after load of "
                     f"{artifact}; the write did not take"
                 )
-
-        post: list[str] = []
-        if reset_after:
-            post.append("monitor reset")
-        if halt_after:
-            post.append("monitor halt")
-        if post:
-            self._run_gdb(post)
 
         self._log_op(
             "program",
