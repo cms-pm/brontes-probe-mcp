@@ -13,6 +13,9 @@ class ProgramResult(BaseModel):
     duration_s: float = 0.0
     halted: bool = False
     format: str = "elf"
+    # Post-program FLASH_SR value on families with a known flash error-status
+    # register (issue #21); None when the family is unknown or it was unreadable.
+    flash_status: int | None = None
 
 
 class ProbeState(BaseModel):
