@@ -4,6 +4,7 @@
 Acceptance: SCN-2.1.2-RESET-CATALOG, SCN-2.1.2-RESET-ECHO,
 SCN-2.1.2-RESET-DOC-WATCHDOG.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -25,6 +26,7 @@ _KINDS_TO_COMMAND: dict[str, str] = {
     "system": "monitor reset system",
     "core": "monitor reset core",
     "backend_default": "monitor reset",
+    "sysresetreq": "monitor reset sysresetreq",  # back-compat alias (pre-0.4 clients)
 }
 
 

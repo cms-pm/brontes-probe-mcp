@@ -49,9 +49,15 @@ _RESET_KIND_TO_CMD: dict[str, str] = {
     "system": "monitor reset system",
     "core": "monitor reset core",
     "backend_default": "monitor reset",
+    # Back-compat alias for pre-0.4 clients (e.g. the basanos gate's cards). pyOCD's
+    # ResetType has a distinct SYSRESETREQ (not SYSTEM), so this maps to that exact
+    # reset, preserving the behaviour such clients were qualified against.
+    "sysresetreq": "monitor reset sysresetreq",
 }
 
-ResetKind = Literal["soft", "hard", "sw", "system", "core", "backend_default"]
+ResetKind = Literal[
+    "soft", "hard", "sw", "system", "core", "backend_default", "sysresetreq"
+]
 
 # Substrings in subprocess stderr that signal a corrupt pack index.
 _PACK_CORRUPT_SIGNATURES: tuple[str, ...] = (
@@ -365,6 +371,9 @@ class BrokerCore:
           - ``core``: core-only reset; peripherals retain state.
           - ``backend_default``: whatever the backend defaults to;
             parity with pre-2.1.2 callers that issued ``monitor reset``.
+          - ``sysresetreq``: back-compat alias for pre-0.4 clients; pyOCD's
+            explicit ``SYSRESETREQ`` reset (``monitor reset sysresetreq``),
+            distinct from ``system``.
 
         Watchdog-masking caveat: any reset kind that resets the debug
         domain (notably ``hard`` and ``sw``) can convert IWDG-induced
