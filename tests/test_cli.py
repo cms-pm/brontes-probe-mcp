@@ -15,7 +15,9 @@ def test_version_flag(capsys: pytest.CaptureFixture[str]) -> None:
         main()
     assert exc.value.code == 0
     captured = capsys.readouterr()
-    assert "0.3.0" in captured.out
+    from brontes_probe_mcp import __version__
+
+    assert __version__ in captured.out
 
 
 def test_config_dump(capsys: pytest.CaptureFixture[str]) -> None:

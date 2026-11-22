@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-21
+
+STM32G4 flash reliability: `program` no longer silently no-ops, and — with the new
+gdbserver flash options — actually programs the board on the STM32G474 (verified on
+hardware). Restores the `sysresetreq` reset kind that pre-0.4 clients were qualified
+against.
+
 ### Fixed
 
 - **Flash `program` no longer silently no-ops (#21).** On STM32 targets a sticky
@@ -31,6 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pyocd session options to the gdbserver (e.g. `-O smart_flash=false`). A warning
   is emitted if the options are passed while reusing an already-running or
   external gdbserver, where they would otherwise be silently ignored.
+- `sysresetreq` reset kind restored as a back-compat alias mapping to pyOCD's
+  `SYSRESETREQ` reset (`monitor reset sysresetreq`), distinct from `system`, so
+  pre-0.4 clients (e.g. the basanos gate's cards) keep working against the new
+  reset vocabulary.
 
 ## [0.3.0] - 2026-06-16
 
