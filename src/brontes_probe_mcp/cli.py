@@ -17,7 +17,10 @@ def _probe_boards(pyocd_bin: str) -> list[dict[str, object]]:
     try:
         result = subprocess.run(
             [pyocd_bin, "json", "--probes"],
-            capture_output=True, text=True, check=False, timeout=10,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
         )
         if result.returncode != 0:
             return []
@@ -65,6 +68,11 @@ def _cmd_probe_agent_start(args: argparse.Namespace) -> None:
         kwargs["frequency_hz"] = args.frequency_hz
     if args.pack:
         kwargs["pack"] = args.pack
+    if args.pyocd_options:
+        extra: list[str] = []
+        for opt in args.pyocd_options:
+            extra.extend(["-O", opt])
+        kwargs["extra_args"] = extra
 
     result = mgr.start(profile="agent", **kwargs)
     print(json.dumps({"state": result.state, "target": result.target}))
@@ -222,7 +230,8 @@ def main() -> None:
 
     pa_start = pa_sub.add_parser("start", help="Start probe agent")
     pa_start.add_argument(
-        "--target", "-t",
+        "--target",
+        "-t",
         metavar="TARGET",
         default=None,
         help="pyocd target string (e.g. stm32g474); auto-detected if omitted",
@@ -232,7 +241,23 @@ def main() -> None:
     pa_start.add_argument("--frequency-hz", type=int, default=None, metavar="HZ")
     pa_start.add_argument("--pack", metavar="PATH", default=None)
     pa_start.add_argument(
-        "--state-dir", default=_default_state_dir, metavar="DIR",
+        "-O",
+        "--pyocd-option",
+        action="append",
+        default=None,
+        metavar="KEY=VALUE",
+        dest="pyocd_options",
+        help=(
+            "Extra pyocd session option, passed to the gdbserver as `-O KEY=VALUE` "
+            "(repeatable). For STM32G4 targets whose default smart-flash `load` path "
+            "raises PGSERR/PGAERR, `-O chip_erase=sector -O smart_flash=false` forces "
+            "a plain erase-then-program like the pyocd FileProgrammer."
+        ),
+    )
+    pa_start.add_argument(
+        "--state-dir",
+        default=_default_state_dir,
+        metavar="DIR",
         help=(
             "Directory for agent state file (default: ~/.brontes-probe-mcp). "
             "If changed, set PROBE_BROKER_AGENT_STATE_DIR to the same path "

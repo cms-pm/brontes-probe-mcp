@@ -38,6 +38,7 @@ def test_no_args_exits_zero(capsys: pytest.CaptureFixture[str]) -> None:
 
 # ── COM-010: top-level --transports removed ───────────────────────────────────
 
+
 def test_top_level_transports_flag_rejected(capsys: pytest.CaptureFixture[str]) -> None:
     sys.argv = ["brontes-probe-mcp-cli", "--transports", "stdio"]
     with pytest.raises(SystemExit) as exc:
@@ -62,6 +63,7 @@ def test_serve_transports_flag_accepted(capsys: pytest.CaptureFixture[str]) -> N
 
 
 # ── COM-006: session-unlock subcommand ────────────────────────────────────────
+
 
 def test_session_unlock_removes_lock(
     capsys: pytest.CaptureFixture[str], tmp_path: pytest.TempPathFactory
@@ -112,8 +114,13 @@ def test_probe_agent_start_forwards_agent_profile(
         instance = MockMgr.return_value
         instance.start.return_value = healthy
         sys.argv = [
-            "brontes-probe-mcp-cli", "probe-agent", "start",
-            "--target", "stm32g474", "--state-dir", str(tmp_path),
+            "brontes-probe-mcp-cli",
+            "probe-agent",
+            "start",
+            "--target",
+            "stm32g474",
+            "--state-dir",
+            str(tmp_path),
         ]
         main()
 
@@ -121,6 +128,37 @@ def test_probe_agent_start_forwards_agent_profile(
     assert call_kwargs is not None
     assert call_kwargs.kwargs.get("profile") == "agent"
     assert call_kwargs.kwargs.get("target") == "stm32g474"
+
+
+def test_probe_agent_start_forwards_pyocd_options(
+    capsys: pytest.CaptureFixture[str], tmp_path: pytest.TempPathFactory
+) -> None:
+    """`-O KEY=VALUE` (repeatable) reaches the session as extra `-O KEY=VALUE` args."""
+    import unittest.mock as _mock
+
+    from brontes_probe_mcp.core.models import SessionStatus
+
+    healthy = SessionStatus(protocol_version="1.1", state="healthy", target="stm32g474")
+    with _mock.patch(_MGR) as MockMgr:
+        instance = MockMgr.return_value
+        instance.start.return_value = healthy
+        sys.argv = [
+            "brontes-probe-mcp-cli",
+            "probe-agent",
+            "start",
+            "--target",
+            "stm32g474",
+            "--state-dir",
+            str(tmp_path),
+            "-O",
+            "chip_erase=sector",
+            "-O",
+            "smart_flash=false",
+        ]
+        main()
+
+    extra = instance.start.call_args.kwargs.get("extra_args")
+    assert extra == ["-O", "chip_erase=sector", "-O", "smart_flash=false"]
 
 
 def test_probe_agent_start_auto_detect_single_probe(
@@ -141,8 +179,11 @@ def test_probe_agent_start_auto_detect_single_probe(
         instance = MockMgr.return_value
         instance.start.return_value = healthy
         sys.argv = [
-            "brontes-probe-mcp-cli", "probe-agent", "start",
-            "--state-dir", str(tmp_path),
+            "brontes-probe-mcp-cli",
+            "probe-agent",
+            "start",
+            "--state-dir",
+            str(tmp_path),
         ]
         main()
 
@@ -158,8 +199,11 @@ def test_probe_agent_start_no_probes_exits_nonzero(
 
     with _mock.patch(_BOARDS, return_value=[]) as mock_boards:
         sys.argv = [
-            "brontes-probe-mcp-cli", "probe-agent", "start",
-            "--state-dir", str(tmp_path),
+            "brontes-probe-mcp-cli",
+            "probe-agent",
+            "start",
+            "--state-dir",
+            str(tmp_path),
         ]
         with pytest.raises(SystemExit) as exc:
             main()
@@ -182,8 +226,11 @@ def test_probe_agent_start_ambiguous_probes_exits_nonzero(
     ]
     with _mock.patch(_BOARDS, return_value=boards) as mock_boards:
         sys.argv = [
-            "brontes-probe-mcp-cli", "probe-agent", "start",
-            "--state-dir", str(tmp_path),
+            "brontes-probe-mcp-cli",
+            "probe-agent",
+            "start",
+            "--state-dir",
+            str(tmp_path),
         ]
         with pytest.raises(SystemExit) as exc:
             main()
@@ -207,8 +254,11 @@ def test_probe_agent_stop_forwards_agent_profile(
         instance = MockMgr.return_value
         instance.stop.return_value = stopped
         sys.argv = [
-            "brontes-probe-mcp-cli", "probe-agent", "stop",
-            "--state-dir", str(tmp_path),
+            "brontes-probe-mcp-cli",
+            "probe-agent",
+            "stop",
+            "--state-dir",
+            str(tmp_path),
         ]
         main()
 
@@ -230,8 +280,11 @@ def test_probe_agent_status_healthy_exits_zero(
         instance = MockMgr.return_value
         instance.status.return_value = healthy
         sys.argv = [
-            "brontes-probe-mcp-cli", "probe-agent", "status",
-            "--state-dir", str(tmp_path),
+            "brontes-probe-mcp-cli",
+            "probe-agent",
+            "status",
+            "--state-dir",
+            str(tmp_path),
         ]
         main()
 
@@ -253,8 +306,11 @@ def test_probe_agent_status_unhealthy_exits_nonzero(
         instance = MockMgr.return_value
         instance.status.return_value = unhealthy
         sys.argv = [
-            "brontes-probe-mcp-cli", "probe-agent", "status",
-            "--state-dir", str(tmp_path),
+            "brontes-probe-mcp-cli",
+            "probe-agent",
+            "status",
+            "--state-dir",
+            str(tmp_path),
         ]
         with pytest.raises(SystemExit) as exc:
             main()
