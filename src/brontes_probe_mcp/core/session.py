@@ -6,6 +6,7 @@ import os
 import signal
 import socket
 import subprocess
+import sys
 import time
 import uuid
 from collections.abc import Callable
@@ -226,6 +227,17 @@ class SessionManager:
                         gdb_port = _ap
                 except (json.JSONDecodeError, KeyError, ValueError, OSError):
                     pass  # malformed or unreadable state file — fall through to spawn
+
+        # extra_args only configure a freshly-spawned local gdbserver. If we reuse an
+        # already-running or external one they do not take effect, so warn — otherwise a
+        # `-O smart_flash=false` re-run against a lingering server is silently a no-op.
+        if external_agent and extra_args:
+            print(
+                "warning: extra gdbserver options are ignored while reusing an "
+                "already-running or external gdbserver; stop the agent first for them "
+                f"to take effect (ignored: {' '.join(extra_args)})",
+                file=sys.stderr,
+            )
 
         with _OperationLock(self._lock_path()):
             # Single-session: implicitly replace any active session
