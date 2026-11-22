@@ -18,16 +18,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   error. Target families are matched by name prefix (STM32G4/L4 to start).
 - **STM32G4 flash `program` now works (root cause of #21).** The gdbserver's
   default smart-flash `load` path raises `PGSERR`/`PGAERR` on the STM32G474, so
-  programming failed while pyOCD's direct FileProgrammer succeeded. `probe-agent
-  start` now accepts `-O/--pyocd-option KEY=VALUE` (repeatable), forwarded to the
-  gdbserver; starting with `-O chip_erase=sector -O smart_flash=false` forces a
-  plain erase-then-program and programs the board correctly (verified on a
-  STM32G474: the flashed image's segment hash matches after a GDB `load`).
+  programming failed while pyOCD's direct FileProgrammer succeeded. Starting the
+  agent with `-O chip_erase=sector -O smart_flash=false` forces a plain
+  erase-then-program and programs the board correctly (verified on a STM32G474:
+  the flashed image's segment hash matches after a GDB `load`).
 
 ### Added
 
 - `ProgramResult.flash_status`: the post-program `FLASH_SR` value on families
   with a known flash error-status register (`None` otherwise).
+- `probe-agent start -O/--pyocd-option KEY=VALUE` (repeatable): forwards extra
+  pyocd session options to the gdbserver (e.g. `-O smart_flash=false`). A warning
+  is emitted if the options are passed while reusing an already-running or
+  external gdbserver, where they would otherwise be silently ignored.
 
 ## [0.3.0] - 2026-06-16
 

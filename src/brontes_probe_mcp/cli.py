@@ -71,6 +71,13 @@ def _cmd_probe_agent_start(args: argparse.Namespace) -> None:
     if args.pyocd_options:
         extra: list[str] = []
         for opt in args.pyocd_options:
+            key = opt.split("=", 1)[0]
+            if "=" not in opt or not key:
+                print(
+                    f"error: --pyocd-option must be KEY=VALUE (got {opt!r})",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
             extra.extend(["-O", opt])
         kwargs["extra_args"] = extra
 

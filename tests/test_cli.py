@@ -161,6 +161,26 @@ def test_probe_agent_start_forwards_pyocd_options(
     assert extra == ["-O", "chip_erase=sector", "-O", "smart_flash=false"]
 
 
+def test_probe_agent_start_rejects_malformed_pyocd_option(
+    tmp_path: pytest.TempPathFactory,
+) -> None:
+    """A `-O` token without `KEY=VALUE` is rejected with a clear error (exit 2)."""
+    sys.argv = [
+        "brontes-probe-mcp-cli",
+        "probe-agent",
+        "start",
+        "--target",
+        "stm32g474",
+        "--state-dir",
+        str(tmp_path),
+        "-O",
+        "chip_erase",  # missing '='
+    ]
+    with pytest.raises(SystemExit) as exc:
+        main()
+    assert exc.value.code == 2
+
+
 def test_probe_agent_start_auto_detect_single_probe(
     capsys: pytest.CaptureFixture[str], tmp_path: pytest.TempPathFactory
 ) -> None:
